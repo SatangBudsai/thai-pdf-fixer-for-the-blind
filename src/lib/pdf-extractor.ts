@@ -64,18 +64,12 @@ function buildPageText(items: TextItem[]): string {
   })
 
   // Group into lines: items with similar Y are on the same line
+  // pdfjs-dist already returns items in correct reading order, so no sorting needed
   const lines: Chunk[][] = []
   let currentLine: Chunk[] = []
   let lineY = chunks[0]?.y ?? 0
 
-  // Sort by Y descending (PDF coords: Y=0 at bottom), then X ascending
-  const sorted = [...chunks].sort((a, b) => {
-    const yDiff = b.y - a.y
-    if (Math.abs(yDiff) > a.fontSize * 0.3) return yDiff > 0 ? -1 : 1
-    return a.x - b.x
-  })
-
-  for (const chunk of sorted) {
+  for (const chunk of chunks) {
     if (currentLine.length === 0) {
       currentLine.push(chunk)
       lineY = chunk.y

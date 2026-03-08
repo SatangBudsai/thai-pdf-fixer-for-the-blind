@@ -197,8 +197,8 @@ export default function Home() {
     setErrorMessage('')
 
     playSFX('upload')
-    await speakAsync('รับไฟล์แล้ว กำลังเริ่มแก้ไขข้อความ โปรดรอสักครู่')
-    announce('รับไฟล์แล้ว กำลังเริ่มแก้ไขข้อความ โปรดรอสักครู่')
+    speakText('กำลังแปลง')
+    announce('กำลังแปลง')
 
     const procAudio = playSFX('processing')
     procAudio.loop = true
@@ -218,10 +218,7 @@ export default function Home() {
         throw new Error('ไม่พบข้อความในไฟล์')
       }
 
-      // Step 1: Fix garbled characters
-      announce('กำลังแก้ไขตัวอักษร...')
-      await speakAsync('กำลังแก้ไขตัวอักษร')
-
+      // Fix garbled characters
       const fixedText = await new Promise<string>(resolve => {
         setTimeout(() => resolve(fixGarbledThai(rawText)), 50)
       })
