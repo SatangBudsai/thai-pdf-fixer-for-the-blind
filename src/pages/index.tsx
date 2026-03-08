@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Icon } from '@iconify/react'
 import Head from 'next/head'
+import Image from 'next/image'
 import { fixGarbledThai } from '@/lib/thai-fixer'
 import { extractTextFromPDF } from '@/lib/pdf-extractor'
 import { speak, stop as stopSpeech, hasThaiVoice } from '@/lib/speech'
@@ -71,8 +72,12 @@ function detectDevice(): DeviceType {
 }
 
 function isStandalone(): boolean {
-  if (typeof window === 'undefined') return false
-  return window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true
+  if (globalThis.window === undefined) return false
+  return (
+    globalThis.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as any).standalone === true ||
+    localStorage.getItem('pwa-installed') === 'true'
+  )
 }
 
 export default function Home() {
@@ -102,14 +107,17 @@ export default function Home() {
       e.preventDefault()
       setDeferredPrompt(e)
     }
-    window.addEventListener('beforeinstallprompt', handler)
+    globalThis.addEventListener('beforeinstallprompt', handler)
 
-    const installedHandler = () => setIsInstalled(true)
-    window.addEventListener('appinstalled', installedHandler)
+    const installedHandler = () => {
+      localStorage.setItem('pwa-installed', 'true')
+      setIsInstalled(true)
+    }
+    globalThis.addEventListener('appinstalled', installedHandler)
 
     return () => {
-      window.removeEventListener('beforeinstallprompt', handler)
-      window.removeEventListener('appinstalled', installedHandler)
+      globalThis.removeEventListener('beforeinstallprompt', handler)
+      globalThis.removeEventListener('appinstalled', installedHandler)
     }
   }, [])
 
@@ -117,7 +125,7 @@ export default function Home() {
     const checkVoices = () => {
       setThaiVoiceAvailable(hasThaiVoice())
     }
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
+    if (globalThis.window !== undefined && globalThis.speechSynthesis) {
       speechSynthesis.addEventListener('voiceschanged', checkVoices)
       checkVoices()
       return () => speechSynthesis.removeEventListener('voiceschanged', checkVoices)
@@ -129,9 +137,10 @@ export default function Home() {
       deferredPrompt.prompt()
       const result = await deferredPrompt.userChoice
       if (result.outcome === 'accepted') {
+        localStorage.setItem('pwa-installed', 'true')
         setIsInstalled(true)
-        announce('กำลังติดตั้งแอปพลิเคชัน')
-        speakText('กำลังติดตั้งแอปพลิเคชัน')
+        announce('ติดตั้งแอปพลิเคชันสำเร็จแล้ว')
+        speakText('ติดตั้งแอปพลิเคชันสำเร็จแล้ว')
       }
       setDeferredPrompt(null)
     } else {
@@ -300,7 +309,10 @@ export default function Home() {
       <main id='main-content' className='mx-auto min-h-screen max-w-3xl px-6 py-12 sm:px-8'>
         {/* ===== Header ===== */}
         <header className='mb-12'>
-          <h1 className='text-6xl font-black tracking-tight text-stone-900 sm:text-7xl'>Thai PDF Fixer</h1>
+          <div className='flex items-center gap-4'>
+            <Image src='/icons/icon_x96.png' alt='' width={64} height={64} className='border-4 border-stone-900 shadow-[4px_4px_0px_0px_rgba(28,25,23,1)]' />
+            <h1 className='text-6xl font-black tracking-tight text-stone-900 sm:text-7xl'>Thai PDF Fixer</h1>
+          </div>
           <p className='mt-2 text-2xl font-bold text-indigo-600 sm:text-3xl'>สำหรับผู้ใช้งานโปรแกรมอ่านหน้าจอ</p>
           <div className='mt-4 border-l-[6px] border-amber-400 pl-5'>
             <p className='text-lg text-stone-600'>เครื่องมือแก้ไขสระและวรรณยุกต์ภาษาไทยที่ผิดเพี้ยนจากการคัดลอกไฟล์ PDF</p>
