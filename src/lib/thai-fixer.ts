@@ -1,99 +1,134 @@
 /**
  * Fix garbled Thai text from PDFs.
  *
- * Handles multiple garbling patterns:
+ * Approach inspired by pdf2txt_th (github.com/veer66/pdf2txt_th, LGPL-3.0).
+ * Fixes at the CHARACTER level (encoding, ordering, spacing) for maximum accuracy.
+ * Avoids word-level guessing that causes false positives.
  *
- * 1. Severe garbling (Type B): government/EEC documents
- *    - Spaces between every character
- *    - Digits substituting Thai combining marks (7→็, 56→ู่)
- *    - Symbols substituting Thai chars (;→ื่, !→ู่)
- *
- * 2. PDF text extraction spacing artifacts (Type A):
- *    - Spaces inserted before Thai combining characters
- *    - Sara Am (ำ) decomposed with space: "ท า" → "ทำ"
- *    - Nikhahit (ํ) + Sara Aa (า) not combined into Sara Am (ำ)
- *    - Multiple spaces from line-break joins
- *    - Spaces around hyphens: "C - 17" → "C-17"
- *
- * 3. Lost/misplaced Sara Am (ำ ↔ า):
- *    - Uses Intl.Segmenter + dictionary fallback for smart detection
- *
- * 4. TIS-620 / Windows-874 encoding misread as Latin-1 (mojibake)
+ * Pipeline:
+ * 1. Character remapping (garbled chars → correct Thai) — only in Thai context
+ * 2. If severe garbling: digit/symbol substitutions + space stripping
+ * 3. Combining character reordering (pdf2txt_th rules)
+ * 4. Remove spaces before/between combining marks
+ * 5. Sara Am reconstruction (ํ + า → ำ)
+ * 6. General spacing cleanup
+ * 7. Dictionary-based Sara Am correction (conservative, multi-syllable only)
+ * 8. Encoding mojibake fix (TIS-620 / Windows-874)
  */
 
-// ── Thai character class regexes ──
+// ══════════════════════════════════════════════════════════════════════
+// Unicode ranges
+// ══════════════════════════════════════════════════════════════════════
 
-const THAI_COMBINING_RE = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/
-const THAI_CONSONANT_RE = /[\u0E01-\u0E2E]/
-const THAI_ABOVE_BELOW_VOWEL_RE = /[\u0E34-\u0E39]/
-const THAI_TONE_MARK_RE = /[\u0E48-\u0E4B]/
-const THAI_CHAR_RE = /[\u0E00-\u0E7F]/
+const CONSONANTS = '\u0E01-\u0E2E'       // ก-ฮ
+const ABOVE_BELOW = '\u0E31\u0E34-\u0E3A' // ั ิ ี ึ ื ุ ู ฺ
+const TONE_MARKS = '\u0E48-\u0E4B'        // ่ ้ ๊ ๋
+const THAI_RANGE = '\u0E00-\u0E7F'        // all Thai
 
-// ── Type B: Severe garbling detection & fixes ──
+// Combining characters used in pdf2txt_th reordering rules
+// Vowels/marks that appear above or below the consonant
+const COMBINING_VOWELS = '\u0E33\u0E38\u0E39\u0E34\u0E35\u0E36\u0E37\u0E4D'
+// ำ ุ ู ิ ี ึ ื ํ
 
-/**
- * Detect whether text has severe (Type B) garbling.
- * Type B = spaces between individual characters (not between words).
- * Heuristic: count how many Thai chars appear in single-char runs (isolated by spaces).
- */
+const RE_THAI = new RegExp(`[${THAI_RANGE}]`)
+
+// ══════════════════════════════════════════════════════════════════════
+// Phase 1: Character remapping (pdf2txt_th style)
+// ══════════════════════════════════════════════════════════════════════
+// When PDF fonts use non-standard encoding, Latin characters may appear
+// where Thai combining marks should be. Only remap when surrounded by Thai.
+
+function applyCharacterRemapping(text: string): string {
+  // Latin → Thai mappings that only apply in Thai context
+  const contextMappings: [string, string][] = [
+    ['e', '\u0E35'], // ี (sara ii)
+    ['i', '\u0E49'], // ้ (mai tho)
+    ['h', '\u0E48'], // ่ (mai ek)
+    ['j', '\u0E4A'], // ๊ (mai tri)
+    ['k', '\u0E4B'], // ๋ (mai chattawa)
+    ['`', '\u0E34'], // ิ (sara i)
+  ]
+
+  let result = text
+
+  for (const [from, to] of contextMappings) {
+    // Only replace when preceded by Thai and followed by Thai or whitespace+Thai
+    const re = new RegExp(
+      `([${THAI_RANGE}])${escapeRegex(from)}(?=[${THAI_RANGE}]|\\s*[${THAI_RANGE}])`,
+      'g'
+    )
+    result = result.replace(re, `$1${to}`)
+  }
+
+  // Always normalize typographic quotes
+  result = result.replace(/[\u201C\u201D]/g, '"')
+  result = result.replace(/[\u2018\u2019]/g, "'")
+
+  return result
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Phase 2: Severe garbling detection & fixes (Type B)
+// ══════════════════════════════════════════════════════════════════════
+// Government/EEC documents: spaces between every char, digit/symbol subs
+
 function detectGarblingLevel(text: string): 'mild' | 'severe' {
   const collapsed = text.replace(/ {2,}/g, ' ')
-
   let thaiCount = 0
   let singleCharRuns = 0
 
-  // Count Thai chars and single-char Thai runs
   for (let i = 0; i < collapsed.length; i++) {
-    if (!THAI_CHAR_RE.test(collapsed[i])) continue
+    if (!RE_THAI.test(collapsed[i])) continue
     thaiCount++
-
-    // Check if this Thai char is isolated (preceded and followed by space or boundary)
-    const prevIsSpace = i === 0 || collapsed[i - 1] === ' ' || !THAI_CHAR_RE.test(collapsed[i - 1])
-    const nextIsSpace = i === collapsed.length - 1 || collapsed[i + 1] === ' ' || !THAI_CHAR_RE.test(collapsed[i + 1])
-    if (prevIsSpace && nextIsSpace) singleCharRuns++
+    const prevSpace = i === 0 || collapsed[i - 1] === ' ' || !RE_THAI.test(collapsed[i - 1])
+    const nextSpace = i === collapsed.length - 1 || collapsed[i + 1] === ' ' || !RE_THAI.test(collapsed[i + 1])
+    if (prevSpace && nextSpace) singleCharRuns++
   }
 
   if (thaiCount < 10) return 'mild'
-
-  // If more than 30% of Thai chars are single-char runs, it's severe
   if (singleCharRuns / thaiCount > 0.3) return 'severe'
 
   // Also check for digits/symbols in combining-mark positions
-  const digitAfterThai = /[\u0E01-\u0E2E] *\d/.test(text)
-  const symbolAfterThai = /[\u0E01-\u0E2E] *[;\\!@#]/.test(text)
-  if (digitAfterThai || symbolAfterThai) return 'severe'
+  if (/[\u0E01-\u0E2E] *\d/.test(text) || /[\u0E01-\u0E2E] *[;\\!@#]/.test(text)) {
+    return 'severe'
+  }
 
   return 'mild'
 }
 
 function fixDigitSubstitutions(text: string): string {
   let result = text
+  const consonantSrc = `[${CONSONANTS}]`
+  const combiningSrc = `[${ABOVE_BELOW}\u0E47-\u0E4E]`
+  const thaiSrc = `[${THAI_RANGE}]`
 
-  const multiDigitMap: Record<string, string> = {
-    '56': '\u0E39\u0E48',  // ู่
-    '5@': '\u0E39',        // ู
-    '34': '\u0E36\u0E49',  // ึ้
-  }
+  // Multi-digit substitutions first (longer match = higher priority)
+  const multiDigitMap: [string, string][] = [
+    ['56', '\u0E39\u0E48'],  // ู่
+    ['5@', '\u0E39'],        // ู
+    ['34', '\u0E36\u0E49'],  // ึ้
+  ]
 
-  for (const [digits, replacement] of Object.entries(multiDigitMap)) {
+  for (const [digits, replacement] of multiDigitMap) {
     const re = new RegExp(
-      `(${THAI_CONSONANT_RE.source}(?:${THAI_COMBINING_RE.source})*)${escapeRegex(digits)}(?= ?${THAI_CHAR_RE.source}|\\s|$)`,
+      `(${consonantSrc}(?:${combiningSrc})*)${escapeRegex(digits)}(?= ?${thaiSrc}|\\s|$)`,
       'g'
     )
     result = result.replace(re, `$1${replacement}`)
   }
 
-  const singleDigitMap: Record<string, string> = {
-    '7': '\u0E47',   // ็
-    '5': '\u0E39',   // ู
-    '6': '\u0E48',   // ่
-    '3': '\u0E36',   // ึ
-    '0': '\u0E30',   // ะ
-  }
+  // Single-digit substitutions
+  const singleDigitMap: [string, string][] = [
+    ['7', '\u0E47'],  // ็ (mai taikhu)
+    ['5', '\u0E39'],  // ู (sara uu)
+    ['6', '\u0E48'],  // ่ (mai ek)
+    ['3', '\u0E36'],  // ึ (sara ue)
+    ['0', '\u0E30'],  // ะ (sara a)
+  ]
 
-  for (const [digit, replacement] of Object.entries(singleDigitMap)) {
+  for (const [digit, replacement] of singleDigitMap) {
     const re = new RegExp(
-      `(${THAI_CONSONANT_RE.source}(?:${THAI_COMBINING_RE.source})*)${escapeRegex(digit)}(?= ?${THAI_CHAR_RE.source}|\\s|$)`,
+      `(${consonantSrc}(?:${combiningSrc})*)${escapeRegex(digit)}(?= ?${thaiSrc}|\\s|$)`,
       'g'
     )
     result = result.replace(re, `$1${replacement}`)
@@ -104,18 +139,20 @@ function fixDigitSubstitutions(text: string): string {
 
 function fixSymbolSubstitutions(text: string): string {
   let result = text
+  const consonantSrc = `[${CONSONANTS}]`
+  const thaiSrc = `[${THAI_RANGE}]`
 
-  const symbolMap: [RegExp, string][] = [
-    [new RegExp(`(${THAI_CONSONANT_RE.source}); ?`, 'g'), '$1\u0E37\u0E48'],
-    [new RegExp(`(${THAI_CONSONANT_RE.source})! ?`, 'g'), '$1\u0E39\u0E48'],
-    [new RegExp(`(${THAI_CHAR_RE.source})\\\\ ?(${THAI_CHAR_RE.source})`, 'g'), '$1$2'],
-    [new RegExp(`(${THAI_CHAR_RE.source})@ ?(${THAI_CHAR_RE.source})`, 'g'), '$1$2'],
-    [new RegExp(`(${THAI_CHAR_RE.source})# ?(${THAI_CHAR_RE.source})`, 'g'), '$1$2'],
-    [new RegExp(`(${THAI_CONSONANT_RE.source})' ?(${THAI_CHAR_RE.source})`, 'g'), '$1\u0E4C$2'],
-    [new RegExp(`(${THAI_CONSONANT_RE.source})\\+ ?(${THAI_CHAR_RE.source})`, 'g'), '$1\u0E47$2'],
+  const symbolRules: [RegExp, string][] = [
+    [new RegExp(`(${consonantSrc}); ?`, 'g'), '$1\u0E37\u0E48'],         // ื่
+    [new RegExp(`(${consonantSrc})! ?`, 'g'), '$1\u0E39\u0E48'],         // ู่
+    [new RegExp(`(${thaiSrc})\\\\ ?(${thaiSrc})`, 'g'), '$1$2'],         // remove \
+    [new RegExp(`(${thaiSrc})@ ?(${thaiSrc})`, 'g'), '$1$2'],            // remove @
+    [new RegExp(`(${thaiSrc})# ?(${thaiSrc})`, 'g'), '$1$2'],            // remove #
+    [new RegExp(`(${consonantSrc})' ?(${thaiSrc})`, 'g'), '$1\u0E4C$2'], // ์ (thanthakhat)
+    [new RegExp(`(${consonantSrc})\\+ ?(${thaiSrc})`, 'g'), '$1\u0E47$2'], // ็ (mai taikhu)
   ]
 
-  for (const [pattern, replacement] of symbolMap) {
+  for (const [pattern, replacement] of symbolRules) {
     result = result.replace(pattern, replacement)
   }
 
@@ -134,31 +171,98 @@ function stripInterCharSpaces(text: string): string {
   }).join('\n')
 }
 
-// ── Type A: PDF spacing fixes ──
+// ══════════════════════════════════════════════════════════════════════
+// Phase 3: Combining character reordering (from pdf2txt_th)
+// ══════════════════════════════════════════════════════════════════════
+// Thai combining marks must appear in a specific order:
+//   consonant → above/below vowel → tone mark
+// PDFs sometimes output them in wrong order or with spaces between.
 
-function fixPdfSpacing(text: string): string {
+function reorderCombiningChars(text: string): string {
   let result = text
 
+  // Rule 1: Tone mark before vowel → swap to vowel before tone mark
+  // Example: ก่ิ → กิ่ (mai ek before sara i → sara i before mai ek)
   result = result.replace(
-    new RegExp(`(.) +(${THAI_COMBINING_RE.source})`, 'g'),
+    new RegExp(`([${TONE_MARKS}])([${COMBINING_VOWELS}])`, 'g'),
+    '$2$1'
+  )
+
+  // Rule 2: Vowel + whitespace + tone mark → remove whitespace
+  // Example: กิ ่ → กิ่
+  result = result.replace(
+    new RegExp(`([${COMBINING_VOWELS}])\\s+([${TONE_MARKS}])`, 'g'),
     '$1$2'
   )
 
+  // Rule 3: Whitespace before combining vowel → remove
+  // Example: ก ิ → กิ (space before sara i)
   result = result.replace(
-    new RegExp(
-      `(${THAI_CONSONANT_RE.source})(${THAI_COMBINING_RE.source}*) +\u0E32`,
-      'g'
-    ),
-    (match, consonant: string, combiningMarks: string) => {
-      if (THAI_ABOVE_BELOW_VOWEL_RE.test(combiningMarks)) return match
-      return consonant + combiningMarks + '\u0E33'
-    }
+    new RegExp(`\\s+(?=[${COMBINING_VOWELS}])`, 'g'),
+    ''
   )
 
-  result = result.replace(/\u0E4D\u0E32/g, '\u0E33')
+  // Rule 4 (pdf2txt_th special case): ู + consonant + tone mark before ำ
+  // Reorder: ู + tone + consonant
+  result = result.replace(
+    new RegExp(`(\u0E39)([${CONSONANTS}])([${TONE_MARKS}])(?=\u0E33)`, 'g'),
+    '$1$3$2'
+  )
 
   return result
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// Phase 4: Remove spaces before/between combining marks
+// ══════════════════════════════════════════════════════════════════════
+
+function removeSpacesAroundCombining(text: string): string {
+  let result = text
+
+  // Remove space between any character and a Thai combining mark
+  // This is more general than the pdf2txt_th rules — catches all cases
+  result = result.replace(
+    new RegExp(`(.) +([${ABOVE_BELOW}\u0E47-\u0E4E])`, 'g'),
+    '$1$2'
+  )
+
+  // Also remove space between consonant and sara aa (า) when followed by
+  // another combining mark (which indicates decomposed sara am)
+  // Example: "ก า" where า has combining marks → likely should be กา or กำ
+  result = result.replace(
+    new RegExp(`([${CONSONANTS}])([${ABOVE_BELOW}\u0E47-\u0E4E]*) +\u0E32`, 'g'),
+    (match, consonant: string, marks: string) => {
+      // If there's already an above/below vowel, keep the space (it's a word boundary)
+      if (/[\u0E34-\u0E39]/.test(marks)) return match
+      return consonant + marks + '\u0E32'
+    }
+  )
+
+  return result
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Phase 5: Sara Am reconstruction (ํ + า → ำ)
+// ══════════════════════════════════════════════════════════════════════
+
+function reconstructSaraAm(text: string): string {
+  let result = text
+
+  // Nikhahit (ํ) + Sara Aa (า) → Sara Am (ำ) — with or without space
+  result = result.replace(/\u0E4D\s*\u0E32/g, '\u0E33')
+
+  // Consonant + space + า → check if it should be ำ
+  // This specifically handles the case where pdfjs-dist decomposes ำ into
+  // separate text items: consonant item + "า" item with space between
+  // Note: consonant + space + า is handled by removeSpacesAroundCombining
+  // and then the dictionary phase. We don't guess here.
+
+  return result
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Phase 6: General spacing cleanup
+// ══════════════════════════════════════════════════════════════════════
 
 function fixSpacingArtifacts(text: string): string {
   let result = text
@@ -167,280 +271,195 @@ function fixSpacingArtifacts(text: string): string {
   return result
 }
 
-// ── Sara Am (ำ ↔ า) fixes ──
+// ══════════════════════════════════════════════════════════════════════
+// Phase 7: Dictionary-based Sara Am correction
+// ══════════════════════════════════════════════════════════════════════
+// CONSERVATIVE: only fix multi-syllable words where the wrong form
+// never occurs naturally in Thai. No 2-char words (too ambiguous).
+//
+// Two directions:
+// A. า→ำ: "สาคัญ" → "สำคัญ" (garbled ำ extracted as า)
+// B. ำ→า: "ภำรกิจ" → "ภารกิจ" (garbled า extracted as ำ)
 
-function countWordSegments(text: string): number {
-  if (typeof Intl?.Segmenter !== 'function') return 0
-  const segmenter = new Intl.Segmenter('th', { granularity: 'word' })
-  let count = 0
-  for (const seg of segmenter.segment(text)) {
-    if (seg.isWordLike) count++
-  }
-  return count
-}
-
-/**
- * Fix misplaced Sara Am (ำ→า).
- * Some PDFs garble า into ำ in wrong positions.
- */
-function fixMisplacedSaraAm(text: string): string {
-  const SARA_AA = '\u0E32'
-  const SARA_AM = '\u0E33'
-
-  // Rule 1: ำ after a tone mark is always invalid → replace with า
-  let result = text.replace(
-    new RegExp(`(${THAI_TONE_MARK_RE.source})${SARA_AM}`, 'g'),
-    `$1${SARA_AA}`
-  )
-
-  if (typeof Intl?.Segmenter !== 'function') return result
-
-  const pattern = new RegExp(
-    `(${THAI_CONSONANT_RE.source})(${THAI_COMBINING_RE.source}*)${SARA_AM}`,
-    'g'
-  )
-
-  const matches: { index: number; length: number; consonant: string; marks: string }[] = []
-  let m: RegExpExecArray | null
-  while ((m = pattern.exec(result)) !== null) {
-    if (THAI_ABOVE_BELOW_VOWEL_RE.test(m[2])) continue
-    matches.push({ index: m.index, length: m[0].length, consonant: m[1], marks: m[2] })
-  }
-
-  if (matches.length === 0) return result
-
-  const chars = result.split('')
-  for (const match of matches) {
-    const contextStart = Math.max(0, match.index - 20)
-    const contextEnd = Math.min(result.length, match.index + match.length + 20)
-
-    const originalChunk = result.slice(contextStart, contextEnd)
-    const modifiedChunk =
-      result.slice(contextStart, match.index) +
-      match.consonant + match.marks + SARA_AA +
-      result.slice(match.index + match.length, contextEnd)
-
-    const originalSegments = countWordSegments(originalChunk)
-    const modifiedSegments = countWordSegments(modifiedChunk)
-
-    const saraAmPos = match.index + match.consonant.length + match.marks.length
-
-    // Replace if า produces fewer or equal segments (be aggressive ำ→า)
-    if (modifiedSegments <= originalSegments) {
-      chars[saraAmPos] = SARA_AA
-    }
-  }
-
-  return chars.join('')
-}
-
-/**
- * Fix lost Sara Am using Intl.Segmenter.
- * CONSERVATIVE: only replace า→ำ when there's strong evidence.
- */
-function fixLostSaraAm(text: string): string {
-  if (typeof Intl?.Segmenter !== 'function') return text
-
-  const SARA_AA = '\u0E32'
-  const SARA_AM = '\u0E33'
-
-  const pattern = new RegExp(
-    `(${THAI_CONSONANT_RE.source})(${THAI_COMBINING_RE.source}*)${SARA_AA}`,
-    'g'
-  )
-
-  const matches: { index: number; length: number; consonant: string; marks: string }[] = []
-  let m: RegExpExecArray | null
-  while ((m = pattern.exec(text)) !== null) {
-    if (THAI_ABOVE_BELOW_VOWEL_RE.test(m[2])) continue
-    matches.push({ index: m.index, length: m[0].length, consonant: m[1], marks: m[2] })
-  }
-
-  if (matches.length === 0) return text
-
-  const result = text.split('')
-  for (const match of matches) {
-    // Skip if this า is part of a known NOT-Sara-Am word
-    const consonant = match.consonant
-    const saraAaPos = match.index + consonant.length + match.marks.length
-    const afterChars = text.slice(saraAaPos + 1, saraAaPos + 4)
-    const beforeAndMatch = text.slice(Math.max(0, match.index - 2), saraAaPos + 1)
-
-    // Check if consonant+า+next chars form a NOT_SARA_AM word
-    let isProtected = false
-    for (const word of NOT_SARA_AM_WORDS) {
-      if (beforeAndMatch.includes(word) || (consonant + 'า' + afterChars).startsWith(word.slice(word.indexOf('า') > 0 ? word.indexOf('า') - 1 : 0))) {
-        // More robust check: does the surrounding text contain a protected word?
-        const windowStart = Math.max(0, match.index - 5)
-        const windowEnd = Math.min(text.length, saraAaPos + 6)
-        const window = text.slice(windowStart, windowEnd)
-        if (window.includes(word)) {
-          isProtected = true
-          break
-        }
-      }
-    }
-    if (isProtected) continue
-
-    const contextStart = Math.max(0, match.index - 20)
-    const contextEnd = Math.min(text.length, match.index + match.length + 20)
-
-    const originalChunk = text.slice(contextStart, contextEnd)
-    const modifiedChunk =
-      text.slice(contextStart, match.index) +
-      match.consonant + match.marks + SARA_AM +
-      text.slice(match.index + match.length, contextEnd)
-
-    const originalSegments = countWordSegments(originalChunk)
-    const modifiedSegments = countWordSegments(modifiedChunk)
-
-    // STRICT: only replace when ำ produces CLEARLY fewer segments (at least 2 fewer)
-    // This prevents false positives from noisy context
-    if (modifiedSegments < originalSegments - 1) {
-      result[saraAaPos] = SARA_AM
-    }
-    // If exactly 1 fewer, also require dictionary confirmation
-    else if (modifiedSegments === originalSegments - 1) {
-      if (isDictionarySaraAm(consonant)) {
-        result[saraAaPos] = SARA_AM
-      }
-    }
-    // NO tiebreaker — if equal, keep original า
-  }
-
-  return result.join('')
-}
-
-// ── Sara Am Dictionaries ──
-
-/**
- * Consonants that commonly form ำ syllables.
- * Used as additional confirmation for fixLostSaraAm.
- */
-function isDictionarySaraAm(consonant: string): boolean {
-  // These consonants very commonly pair with ำ
-  const commonSaraAmConsonants = new Set([
-    'ก', // กำ
-    'ค', // คำ
-    'จ', // จำ
-    'ช', // ชำ
-    'ด', // ดำ
-    'ต', // ตำ
-    'ท', // ทำ
-    'น', // นำ
-    'บ', // บำ
-    'ล', // ลำ
-    'ส', // สำ
-    'อ', // อำ
-    'ร', // รำ
-  ])
-  return commonSaraAmConsonants.has(consonant)
-}
-
-/**
- * Common Thai words/syllables containing ำ.
- * Used for dictionary-based Sara Am fallback.
- */
-const SARA_AM_WORDS = new Set([
+// Words that SHOULD have ำ — their า-version is always wrong
+const WORDS_WITH_AM: string[] = [
+  // ก
   'กำลัง', 'กำหนด', 'กำไร', 'กำเนิด', 'กำจัด', 'กำกับ', 'กำแพง', 'กำนัน',
+  'กำปั้น', 'กำมะถัน', 'กำไล', 'กำนล', 'กำเริบ', 'กำชับ', 'กำสรวล', 'กำธร',
+  'กำพร้า', 'กำพืด', 'กำเหน็จ', 'กำราบ', 'กำหราบ', 'กำเดา', 'กำมะหยี่',
+  // ข
+  'ขำขัน',
+  // ค
   'คำสั่ง', 'คำถาม', 'คำตอบ', 'คำพูด', 'คำศัพท์', 'คำนวณ', 'คำร้อง',
+  'คำขอ', 'คำแนะนำ', 'คำอธิบาย', 'คำนำ', 'คำปรึกษา', 'คำมั่น',
+  // จ
   'จำเป็น', 'จำนวน', 'จำกัด', 'จำได้', 'จำหน่าย', 'จำลอง', 'จำแนก',
-  'ชำนาญ', 'ชำระ', 'ชำรุด', 'ชำแหละ',
+  'จำคุก', 'จำปา', 'จำพวก', 'จำเลย', 'จำยอม', 'จำใจ', 'จำศีล',
+  // ช
+  'ชำนาญ', 'ชำระ', 'ชำรุด', 'ชำแหละ', 'ชำเลือง',
+  // ด
   'ดำเนิน', 'ดำรง', 'ดำริ', 'ดำน้ำ',
-  'ตำแหน่ง', 'ตำรวจ', 'ตำรา', 'ตำบล', 'ตำนาน', 'ตำหนิ',
-  'ทำให้', 'ทำงาน', 'ทำได้', 'ทำลาย', 'ทำการ', 'ทำนาย', 'ทำนอง', 'ทำบุญ',
-  'นำไป', 'นำมา', 'นำเสนอ', 'นำทาง', 'นำเข้า', 'นำออก',
-  'น้ำมัน', 'น้ำตา', 'น้ำใจ',
+  // ต
+  'ตำแหน่ง', 'ตำรวจ', 'ตำรา', 'ตำบล', 'ตำนาน', 'ตำหนิ', 'ตำหนัก',
+  // ท
+  'ทำให้', 'ทำงาน', 'ทำได้', 'ทำลาย', 'ทำการ', 'ทำนาย', 'ทำนอง',
+  'ทำบุญ', 'ทำเนียบ', 'ทำอาหาร', 'ทำความ', 'ทำหน้าที่', 'ทำสัญญา',
+  'ทำตาม', 'ทำมาหากิน', 'ทำเล', 'ทำท่า', 'ทำโทษ', 'ทำขวัญ',
+  // น
+  'นำไป', 'นำมา', 'นำเสนอ', 'นำทาง', 'นำเข้า', 'นำออก', 'นำหน้า',
+  'นำพา', 'นำร่อง', 'นำสมัย', 'นำกลับ', 'นำเที่ยว',
+  'น้ำมัน', 'น้ำตา', 'น้ำใจ', 'น้ำหนัก', 'น้ำท่วม', 'น้ำแข็ง',
+  'น้ำตก', 'น้ำเสีย', 'น้ำดื่ม', 'น้ำผึ้ง', 'น้ำมนต์', 'น้ำพริก',
+  'น้ำหอม', 'น้ำเงิน', 'น้ำจืด', 'น้ำเค็ม', 'น้ำซุป', 'น้ำปลา',
+  // บ
   'บำรุง', 'บำบัด', 'บำเพ็ญ', 'บำนาญ', 'บำเหน็จ',
-  'ประจำ', 'ประจำวัน',
-  'รำคาญ', 'รำพัน', 'รำลึก',
+  // ป
+  'ปฏิบำ', // rare but exists
+  // ผ
+  'ผลกำไร', 'ผู้กำกับ',
+  // พ
+  'พำนัก',
+  // ร
+  'รำคาญ', 'รำพัน', 'รำลึก', 'รำพึง', 'รำไร',
+  // ล
   'ลำดับ', 'ลำเลียง', 'ลำบาก', 'ลำไย', 'ลำธาร', 'ลำพัง', 'ลำต้น',
-  'สำคัญ', 'สำหรับ', 'สำนัก', 'สำนักงาน', 'สำเร็จ', 'สำรวจ', 'สำรอง', 'สำเนา',
-  'สำราญ', 'สำอาง', 'สำนึก', 'สำแดง',
-  'อำนาจ', 'อำเภอ', 'อำนวย', 'อำพราง', 'อำมหิต',
-])
+  'ลำไส้', 'ลำเอียง', 'ลำคลอง', 'ลำนำ', 'ลำพอง', 'ลำปาง',
+  // ส
+  'สำคัญ', 'สำหรับ', 'สำนัก', 'สำนักงาน', 'สำเร็จ', 'สำรวจ', 'สำรอง',
+  'สำเนา', 'สำราญ', 'สำอาง', 'สำนึก', 'สำแดง', 'สำเภา', 'สำรับ',
+  'สำออย', 'สำรวม', 'สำเริง', 'สำนวน', 'สำมะโน', 'สำลัก', 'สำลี',
+  'สำปะหลัง',
+  // อ
+  'อำนาจ', 'อำเภอ', 'อำนวย', 'อำพราง', 'อำมหิต', 'อำลา', 'อำมาตย์',
+  // ประ- compound
+  'ประจำ', 'ประจำวัน', 'ประจำปี', 'ประจำเดือน', 'ประจำการ',
+  // Compound words
+  'ข้อกำหนด', 'ขีดจำกัด', 'ฝึกอบรำ',
+]
 
-/**
- * Common Thai words where า is correct — ำ would be WRONG.
- * Extensive list to prevent false positives.
- */
-const NOT_SARA_AM_WORDS = new Set([
-  // Very common words
-  'การ', 'ความ', 'จาก', 'มาก', 'อาจ', 'ราย', 'ราช', 'บาง', 'ทาง',
+// Words that SHOULD have า — their ำ-version is always wrong
+const WORDS_WITH_AA: string[] = [
+  // ภ
+  'ภารกิจ', 'ภาค', 'ภาพ', 'ภาษา', 'ภาษ', 'ภาวะ', 'ภาระ',
+  'ภาคี', 'ภาชนะ', 'ภาพยนตร์', 'ภาคภูมิ', 'ภาคเอกชน', 'ภาครัฐ',
+  // เ-า compound
+  'เซาท์', 'เจาะ', 'เขาว่า', 'เขาใหญ่',
+  // อ
   'อากาศ', 'อาหาร', 'อาการ', 'อาสา', 'อาย', 'อายุ', 'อาวุธ', 'อาชีพ',
-  'อาร์', 'อาณา', 'อาณาจักร', 'อาว', 'อาศัย', 'อาจารย์', 'อารมณ์',
-  'ภารกิจ', 'ภาค', 'ภาพ', 'ภาษ', 'ภาษา', 'ภาว', 'ภาวะ', 'ภาร',
-  'เซาท์', 'เวลา', 'เจาะ', 'เขา', 'เรา', 'เดา', 'เสา', 'เทา', 'เก่า', 'เงา',
-  'การณ์', 'กาล', 'กาย', 'การ์', 'กาศ', 'กาจ',
-  'สาร', 'สาว', 'สาม', 'สาย', 'สาข', 'สาธ', 'สาก', 'สาเหตุ',
-  'ราคา', 'ราก', 'ราว', 'ราง', 'ราช', 'ราศ', 'ราชการ',
-  'นาม', 'นาที', 'นาย', 'นาง', 'นาค', 'นาฬ', 'นาน',
-  'ทาน', 'ทาส', 'ทาย', 'ทาง', 'ทาร',
-  'มาก', 'มาตร', 'มาร', 'มาส',
+  'อาณาจักร', 'อาศัย', 'อาจารย์', 'อารมณ์', 'อาราม', 'อาทิตย์',
+  'อาเซียน', 'อาคาร', 'อาณา', 'อาณาเขต', 'อาทิ', 'อาจ',
+  // ก
+  'การ', 'การณ์', 'กาล', 'กาย', 'การ์ด', 'กาศ',
+  'การเมือง', 'การศึกษา', 'การทำ', 'การเงิน', 'การค้า',
+  // ส
+  'สาร', 'สาว', 'สาม', 'สาย', 'สาขา', 'สาธารณ', 'สากล', 'สาเหตุ',
+  'สาธารณสุข', 'สาธารณะ', 'สาระ',
+  // ร
+  'ราคา', 'ราก', 'ราว', 'ราง', 'ราช', 'ราศี', 'ราชการ', 'ราชวงศ์',
+  // น
+  'นาม', 'นาที', 'นาย', 'นาง', 'นาค', 'นาฬิกา', 'นาน',
+  // ท
+  'ทาน', 'ทาส', 'ทาย', 'ทาง', 'ทางการ', 'ทางด้าน',
+  // ม
+  'มาก', 'มาตร', 'มาตรา', 'มาตรฐาน', 'มาร', 'มาส',
+  // บ
   'บาง', 'บาท', 'บาด', 'บาป', 'บาน', 'บาร์',
-  'ชาว', 'ชาติ', 'ชาย', 'ชาญ', 'ชาง', 'ชาร์',
-  'ตาก', 'ตาม', 'ตาย', 'ตาร์', 'ตาน', 'ตาง',
-  'ปาก', 'ปาฏ', 'ปาน',
+  // ช
+  'ชาว', 'ชาติ', 'ชาย', 'ชาญ', 'ชาง', 'ชาร์จ',
+  // ต
+  'ตาก', 'ตาม', 'ตาย', 'ตาง', 'ต่างๆ', 'ต่างชาติ', 'ต่างประเทศ',
+  // ป
+  'ปาก', 'ปาน',
+  // ล
   'ลาย', 'ลาก', 'ลาว', 'ลาภ',
+  // ว
   'วาง', 'วาด', 'วาท', 'วาร', 'วาน',
+  // ห
   'หาก', 'หาย', 'หาร', 'หาง',
-  'คาด', 'คาม', 'คาว', 'คาร์',
+  // ค
+  'คาด', 'คาม', 'คาว', 'คาร์', 'ความ', 'ความรู้', 'ความคิด',
+  // จ
   'จาก', 'จาง', 'จาร',
-  'ฆาต', 'ฆ่า',
+  // ด
   'ดาว', 'ดาร', 'ดาน', 'ดาบ',
-  'พา', 'พาก', 'พาน', 'พาย', 'พาร์',
-  'หน้า', 'ข้า', 'ค่า', 'ว่า', 'น่า', 'ท่า', 'พ่า', 'ผ่า', 'ฆ่า',
-  'ครา', 'คราว',
-  'กระจาย', 'กระดาษ',
-  'ประกาศ', 'ประการ', 'ประกาย',
-  'สงคราม', 'เครา',
-])
+  // พ
+  'พาก', 'พาน', 'พาย', 'พาร์',
+  // Words with ้า (sara aa + mai tho)
+  'หน้า', 'ข้า', 'ค่า', 'ว่า', 'น่า', 'ท่า', 'ผ่า', 'ฆ่า',
+  'น้า', 'บ้า', 'ป้า', 'ล่า', 'ฟ้า', 'ม้า',
+  // ประ-
+  'ประกาศ', 'ประการ', 'ประกาย', 'ประสาท', 'ประชาชน', 'ประชาธิปไตย',
+  'ประเทศ', 'ประกัน',
+  // กระ-
+  'กระจาย', 'กระดาษ', 'กระทรวง',
+  // Other
+  'สงคราม', 'เวลา', 'ปัญหา', 'ตัวเลขา', 'ประชา',
+  'เครา', 'ดารา', 'มารา', 'สารา',
+]
 
 /**
- * Dictionary-based Sara Am fallback.
- * Uses Intl.Segmenter word boundaries to avoid false substring matches.
- * Only replaces when a WHOLE segmented word matches a dictionary entry.
+ * Generate wrong→right replacement pairs from dictionaries.
+ * Sort by length (longest first) to prevent partial matches.
  */
-function dictionarySaraAmFallback(text: string): string {
-  if (typeof Intl?.Segmenter !== 'function') return text
+function buildSaraAmReplacements(): [string, string][] {
+  const pairs: [string, string][] = []
 
-  const segmenter = new Intl.Segmenter('th', { granularity: 'word' })
-  const segments = [...segmenter.segment(text)]
-
-  let result = ''
-  for (const seg of segments) {
-    if (!seg.isWordLike) {
-      result += seg.segment
-      continue
+  // Direction A: words with ำ → generate their wrong า-version
+  for (const word of WORDS_WITH_AM) {
+    // For each ำ in the word, create a variant with า instead
+    const amIndices: number[] = []
+    for (let i = 0; i < word.length; i++) {
+      if (word[i] === '\u0E33') amIndices.push(i)
     }
 
-    let word = seg.segment
-
-    // Try า→ำ: only for SPECIFIC known Sara Am words (replace one า at a time)
-    for (const dictWord of SARA_AM_WORDS) {
-      // Create the า version of the dict word
-      const aaVersion = dictWord.replace(/ำ/g, 'า')
-      if (aaVersion !== dictWord && word === aaVersion) {
-        word = dictWord
-        break
+    // Generate variants with one ำ→า at a time
+    for (const idx of amIndices) {
+      const wrongVersion = word.slice(0, idx) + '\u0E32' + word.slice(idx + 1)
+      if (wrongVersion.length >= 3) {
+        pairs.push([wrongVersion, word])
       }
     }
+  }
 
-    // Try ำ→า: check if the word with า is in NOT_SARA_AM_WORDS
-    if (word.includes('ำ')) {
-      const aaVersion = word.replace(/ำ/g, 'า')
-      if (NOT_SARA_AM_WORDS.has(aaVersion)) {
-        word = aaVersion
-      }
+  // Direction B: words with า → generate their wrong ำ-version
+  for (const word of WORDS_WITH_AA) {
+    const aaIndices: number[] = []
+    for (let i = 0; i < word.length; i++) {
+      if (word[i] === '\u0E32') aaIndices.push(i)
     }
 
-    result += word
+    for (const idx of aaIndices) {
+      const wrongVersion = word.slice(0, idx) + '\u0E33' + word.slice(idx + 1)
+      if (wrongVersion.length >= 3) {
+        pairs.push([wrongVersion, word])
+      }
+    }
+  }
+
+  // Sort by length descending — longest matches first
+  pairs.sort((a, b) => b[0].length - a[0].length)
+
+  return pairs
+}
+
+// Pre-compute replacement pairs at module load
+const SARA_AM_REPLACEMENTS = buildSaraAmReplacements()
+
+function fixSaraAmByDictionary(text: string): string {
+  let result = text
+
+  for (const [wrong, right] of SARA_AM_REPLACEMENTS) {
+    if (result.includes(wrong)) {
+      result = result.split(wrong).join(right)
+    }
   }
 
   return result
 }
 
-// ── Encoding fixes ──
+// ══════════════════════════════════════════════════════════════════════
+// Phase 8: Encoding mojibake fix (TIS-620 / Windows-874)
+// ══════════════════════════════════════════════════════════════════════
 
 function tis620ToUnicode(garbled: string): string {
   const result: string[] = []
@@ -458,9 +477,8 @@ function tis620ToUnicode(garbled: string): string {
 function windows874ToUnicode(garbled: string): string {
   const win874Extras: Record<number, number> = {
     0x80: 0x20ac, 0x85: 0x2026, 0x91: 0x2018, 0x92: 0x2019,
-    0x93: 0x201c, 0x94: 0x201d, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014
+    0x93: 0x201c, 0x94: 0x201d, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014,
   }
-
   const result: string[] = []
   for (let i = 0; i < garbled.length; i++) {
     const code = garbled.charCodeAt(i)
@@ -492,60 +510,69 @@ function hasLatinHighBytes(text: string): boolean {
   return false
 }
 
+function fixEncodingMojibake(text: string): string {
+  if (!hasLatinHighBytes(text)) return text
+
+  let bestResult = text
+  let bestScore = countThaiChars(text)
+
+  for (const fn of [tis620ToUnicode, windows874ToUnicode]) {
+    const candidate = fn(text)
+    const score = countThaiChars(candidate)
+    if (score > bestScore) {
+      bestScore = score
+      bestResult = candidate
+    }
+  }
+
+  return bestResult
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Utility
+// ══════════════════════════════════════════════════════════════════════
+
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// ── Main pipeline ──
+// ══════════════════════════════════════════════════════════════════════
+// Main pipeline
+// ══════════════════════════════════════════════════════════════════════
 
 export function fixGarbledThai(input: string): string {
   if (!input.trim()) return ''
 
   let result = input
 
-  // Step 0: Detect garbling severity
-  const level = detectGarblingLevel(result)
+  // Phase 1: Character remapping (pdf2txt_th style)
+  result = applyCharacterRemapping(result)
 
-  // Step 1: If severe (Type B), apply aggressive fixes first
+  // Phase 2: Detect & fix severe garbling (Type B)
+  const level = detectGarblingLevel(result)
   if (level === 'severe') {
     result = fixDigitSubstitutions(result)
     result = fixSymbolSubstitutions(result)
     result = stripInterCharSpaces(result)
   }
 
-  // Step 2: Standard spacing fixes
-  result = fixPdfSpacing(result)
+  // Phase 3: Combining character reordering (pdf2txt_th rules)
+  result = reorderCombiningChars(result)
+
+  // Phase 4: Remove spaces before/between combining marks
+  result = removeSpacesAroundCombining(result)
+
+  // Phase 5: Sara Am reconstruction (ํ + า → ำ)
+  result = reconstructSaraAm(result)
+
+  // Phase 6: General spacing cleanup
   result = fixSpacingArtifacts(result)
 
-  // Step 3: Fix misplaced Sara Am (ำ→า) — AGGRESSIVE
-  result = fixMisplacedSaraAm(result)
+  // Phase 7: Dictionary-based Sara Am correction (conservative)
+  result = fixSaraAmByDictionary(result)
 
-  // Step 4: Fix lost Sara Am (า→ำ) — CONSERVATIVE
-  result = fixLostSaraAm(result)
-
-  // Step 5: Dictionary-based Sara Am fallback (exact word matches only)
-  result = dictionarySaraAmFallback(result)
-
-  // Step 6: Encoding fix (TIS-620 / Windows-874 mojibake)
-  if (hasLatinHighBytes(result)) {
-    const strategies = [
-      { fn: tis620ToUnicode },
-      { fn: windows874ToUnicode }
-    ]
-
-    let bestResult = result
-    let bestScore = countThaiChars(result)
-
-    for (const strategy of strategies) {
-      const candidate = strategy.fn(result)
-      const score = countThaiChars(candidate)
-      if (score > bestScore) {
-        bestScore = score
-        bestResult = candidate
-      }
-    }
-    result = bestResult
-  }
+  // Phase 8: Encoding mojibake fix
+  result = fixEncodingMojibake(result)
 
   return result
 }
