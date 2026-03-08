@@ -4,10 +4,9 @@ import Head from 'next/head'
 import Image from 'next/image'
 import { fixGarbledThai } from '@/lib/thai-fixer'
 import { extractTextFromPDF } from '@/lib/pdf-extractor'
-import { speak, stop as stopSpeech, hasThaiVoice } from '@/lib/speech'
+import { speak, speakAsync, stop as stopSpeech, hasThaiVoice } from '@/lib/speech'
 import { downloadAsTxt, copyToClipboard } from '@/lib/file-utils'
 import { downloadAsDocx } from '@/lib/docx-generator'
-import { segmentThai } from '@/lib/segment-api'
 
 type AppPhase = 'idle' | 'processing' | 'done' | 'error'
 
@@ -134,6 +133,19 @@ export default function Home() {
     }
   }, [])
 
+  // Stop all audio on page refresh/close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      stopSpeech()
+      if (processingAudioRef.current) {
+        processingAudioRef.current.pause()
+        processingAudioRef.current = null
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
+
   const handleInstallClick = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt()
@@ -185,7 +197,7 @@ export default function Home() {
     setErrorMessage('')
 
     playSFX('upload')
-    speakText('รับไฟล์แล้ว กำลังเริ่มแก้ไขข้อความ โปรดรอสักครู่')
+    await speakAsync('รับไฟล์แล้ว กำลังเริ่มแก้ไขข้อความ โปรดรอสักครู่')
     announce('รับไฟล์แล้ว กำลังเริ่มแก้ไขข้อความ โปรดรอสักครู่')
 
     const procAudio = playSFX('processing')
@@ -206,20 +218,21 @@ export default function Home() {
         throw new Error('ไม่พบข้อความในไฟล์')
       }
 
+      // Step 1: Fix garbled characters
+      announce('กำลังแก้ไขตัวอักษร...')
+      await speakAsync('กำลังแก้ไขตัวอักษร')
+
       const fixedText = await new Promise<string>(resolve => {
         setTimeout(() => resolve(fixGarbledThai(rawText)), 50)
       })
 
-      announce('แก้ไขคำเสร็จแล้ว กำลังตัดคำภาษาไทย...')
-      const segmentedText = await segmentThai(fixedText)
-
       stopProcessingSound()
       playSFX('success')
-      setOutputText(segmentedText)
+      setOutputText(fixedText)
       setPhase('done')
 
       const doneMsg = 'แก้ไขสำเร็จแล้ว กดปุ่มฟังเสียงอ่านเพื่อฟังข้อความ'
-      speakText(doneMsg)
+      await speakAsync(doneMsg)
       announce(doneMsg)
 
       requestAnimationFrame(() => {
