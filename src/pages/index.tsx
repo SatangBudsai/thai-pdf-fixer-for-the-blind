@@ -310,7 +310,13 @@ export default function Home() {
         {/* ===== Header ===== */}
         <header className='mb-12'>
           <div className='flex items-center gap-4'>
-            <Image src='/icons/icon_x96.png' alt='' width={64} height={64} className='border-4 border-stone-900 shadow-[4px_4px_0px_0px_rgba(28,25,23,1)]' />
+            <Image
+              src='/icons/icon_x96.png'
+              alt=''
+              width={80}
+              height={80}
+              className='border-4 border-stone-900 shadow-[4px_4px_0px_0px_rgba(28,25,23,1)]'
+            />
             <h1 className='text-6xl font-black tracking-tight text-stone-900 sm:text-7xl'>Thai PDF Fixer</h1>
           </div>
           <p className='mt-2 text-2xl font-bold text-indigo-600 sm:text-3xl'>สำหรับผู้ใช้งานโปรแกรมอ่านหน้าจอ</p>
