@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Icon } from '@iconify/react'
 import Head from 'next/head'
 import Image from 'next/image'
@@ -7,6 +7,7 @@ import { extractTextFromPDF } from '@/lib/pdf-extractor'
 import { speak, stop as stopSpeech, hasThaiVoice } from '@/lib/speech'
 import { downloadAsTxt, copyToClipboard } from '@/lib/file-utils'
 import { downloadAsDocx } from '@/lib/docx-generator'
+import { segmentThai } from '@/lib/segment-api'
 
 type AppPhase = 'idle' | 'processing' | 'done' | 'error'
 
@@ -47,19 +48,6 @@ const btnSecondary = [
   'disabled:opacity-50 disabled:cursor-not-allowed'
 ].join(' ')
 
-const btnNav = [
-  'flex-1 px-4 py-4 text-lg font-bold',
-  'bg-stone-100 text-stone-900',
-  'border-4 border-stone-900',
-  'shadow-[4px_4px_0px_0px_rgba(28,25,23,1)]',
-  'hover:shadow-[2px_2px_0px_0px_rgba(28,25,23,1)]',
-  'hover:translate-x-[2px] hover:translate-y-[2px]',
-  'active:shadow-none active:translate-x-[4px] active:translate-y-[4px]',
-  'transition-all duration-100',
-  'focus:outline-none focus:ring-8 focus:ring-amber-400 focus:ring-offset-4 focus:ring-offset-stone-50',
-  'disabled:opacity-30 disabled:cursor-not-allowed'
-].join(' ')
-
 type DeviceType = 'windows' | 'android' | 'ios' | 'other'
 
 function detectDevice(): DeviceType {
@@ -91,9 +79,8 @@ export default function Home() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
   const [deviceType, setDeviceType] = useState<DeviceType>('other')
   const [isInstalled, setIsInstalled] = useState(false)
+  const [installCheckDone, setInstallCheckDone] = useState(false)
   const [showInstallGuide, setShowInstallGuide] = useState(false)
-  const [currentParagraph, setCurrentParagraph] = useState(0)
-  const [showFullText, setShowFullText] = useState(false)
   const installPromptFired = useRef(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -101,14 +88,10 @@ export default function Home() {
   const readBtnRef = useRef<HTMLButtonElement>(null)
   const retryBtnRef = useRef<HTMLButtonElement>(null)
 
-  const paragraphs = useMemo(
-    () => outputText.split(/\n\n+/).filter(p => p.trim()),
-    [outputText]
-  )
-
   useEffect(() => {
     setDeviceType(detectDevice())
     setIsInstalled(isStandalone())
+    setInstallCheckDone(true)
   }, [])
 
   useEffect(() => {
@@ -200,8 +183,6 @@ export default function Home() {
     setPhase('processing')
     setOutputText('')
     setErrorMessage('')
-    setCurrentParagraph(0)
-    setShowFullText(false)
 
     playSFX('upload')
     speakText('รับไฟล์แล้ว กำลังเริ่มแก้ไขข้อความ โปรดรอสักครู่')
@@ -229,13 +210,15 @@ export default function Home() {
         setTimeout(() => resolve(fixGarbledThai(rawText)), 50)
       })
 
+      announce('แก้ไขคำเสร็จแล้ว กำลังตัดคำภาษาไทย...')
+      const segmentedText = await segmentThai(fixedText)
+
       stopProcessingSound()
       playSFX('success')
-      setOutputText(fixedText)
+      setOutputText(segmentedText)
       setPhase('done')
 
-      const pCount = fixedText.split(/\n\n+/).filter(p => p.trim()).length
-      const doneMsg = `แก้ไขสำเร็จแล้ว มี ${pCount} ย่อหน้า กดปุ่มอ่านเพื่อฟัง`
+      const doneMsg = 'แก้ไขสำเร็จแล้ว กดปุ่มฟังเสียงอ่านเพื่อฟังข้อความ'
       speakText(doneMsg)
       announce(doneMsg)
 
@@ -258,31 +241,19 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const handleReadParagraph = () => {
-    const text = paragraphs[currentParagraph]
-    if (!text) return
-
+  const handleSpeak = () => {
     if (speaking) {
       stopSpeech()
       setSpeaking(false)
       announce('หยุดอ่านเสียงแล้ว')
     } else {
       setSpeaking(true)
-      announce(`กำลังอ่านย่อหน้าที่ ${currentParagraph + 1}`)
-      speakText(text, () => {
+      announce('กำลังอ่านข้อความ')
+      speakText(outputText, () => {
         setSpeaking(false)
         announce('อ่านจบแล้ว')
       })
     }
-  }
-
-  const goToParagraph = (index: number) => {
-    if (index < 0 || index >= paragraphs.length) return
-    stopSpeech()
-    setSpeaking(false)
-    setCurrentParagraph(index)
-    const preview = paragraphs[index].slice(0, 40)
-    announce(`ย่อหน้าที่ ${index + 1} จาก ${paragraphs.length}: ${preview}`)
   }
 
   const handleCopy = async () => {
@@ -329,8 +300,6 @@ export default function Home() {
     setOutputText('')
     setErrorMessage('')
     setFileName('')
-    setCurrentParagraph(0)
-    setShowFullText(false)
     announce('พร้อมเริ่มใหม่ กรุณาอัปโหลดไฟล์')
     speakText('พร้อมเริ่มใหม่')
   }
@@ -409,77 +378,20 @@ export default function Home() {
         {/* ===== Done Phase ===== */}
         {phase === 'done' && (
           <section aria-labelledby='result-heading'>
-            <h2
-              id='result-heading'
-              className='mb-6 text-3xl font-bold text-indigo-600'>
+            <h2 id='result-heading' className='mb-6 text-3xl font-bold text-indigo-600'>
               ผลลัพธ์ที่แก้ไขแล้ว
             </h2>
 
-            {/* Paragraph navigator */}
-            <div className='mb-6 border-4 border-stone-900 bg-white p-6 shadow-[8px_8px_0px_0px_rgba(28,25,23,1)]'>
-              <p className='mb-4 text-center text-lg font-bold text-stone-700' aria-live='polite'>
-                ย่อหน้าที่ {currentParagraph + 1} จาก {paragraphs.length}
-              </p>
-
-              {/* Navigation row */}
-              <div className='mb-4 flex gap-3'>
-                <button
-                  onClick={() => goToParagraph(currentParagraph - 1)}
-                  disabled={currentParagraph === 0}
-                  className={btnNav}
-                  aria-label='ย่อหน้าก่อนหน้า'>
-                  <Icon icon='mdi:chevron-left' className='mr-1 inline-block align-middle text-2xl' />
-                  ก่อนหน้า
-                </button>
-
-                <button
-                  ref={readBtnRef}
-                  onClick={handleReadParagraph}
-                  disabled={!thaiVoiceAvailable && !speaking}
-                  className={btnNav.replace('bg-stone-100', speaking ? 'bg-red-100' : 'bg-indigo-100')}
-                  aria-label={speaking ? 'หยุดอ่าน' : `อ่านย่อหน้าที่ ${currentParagraph + 1}`}>
-                  <Icon icon={speaking ? 'mdi:stop' : 'mdi:volume-high'} className='mr-1 inline-block align-middle text-2xl' />
-                  {speaking ? 'หยุด' : 'อ่าน'}
-                </button>
-
-                <button
-                  onClick={() => goToParagraph(currentParagraph + 1)}
-                  disabled={currentParagraph >= paragraphs.length - 1}
-                  className={btnNav}
-                  aria-label='ย่อหน้าถัดไป'>
-                  ถัดไป
-                  <Icon icon='mdi:chevron-right' className='ml-1 inline-block align-middle text-2xl' />
-                </button>
-              </div>
-
-              {/* Current paragraph text */}
-              <div
-                className='min-h-[120px] border-4 border-stone-300 bg-stone-50 p-4 text-xl leading-relaxed text-stone-900'
-                role='region'
-                aria-label={`เนื้อหาย่อหน้าที่ ${currentParagraph + 1}`}
-                tabIndex={0}>
-                {paragraphs[currentParagraph] ?? ''}
-              </div>
-
-              {/* Toggle full text */}
-              <button
-                onClick={() => setShowFullText(prev => !prev)}
-                className='mt-4 w-full text-center text-lg font-bold text-indigo-600 underline underline-offset-4 focus:outline-none focus:ring-8 focus:ring-amber-400 focus:ring-offset-4'
-                aria-expanded={showFullText}>
-                {showFullText ? 'ซ่อนข้อความทั้งหมด' : `ดูข้อความทั้งหมด (${outputText.length} ตัวอักษร)`}
-              </button>
-
-              {showFullText && (
-                <textarea
-                  id='output-text'
-                  className='mt-4 w-full resize-vertical border-4 border-stone-300 bg-stone-50 p-4 text-xl text-stone-900'
-                  rows={10}
-                  value={outputText}
-                  readOnly
-                  aria-label='ข้อความทั้งหมดที่แก้ไขแล้ว'
-                />
-              )}
-            </div>
+            {/* Read aloud button */}
+            <button
+              ref={readBtnRef}
+              onClick={handleSpeak}
+              disabled={!thaiVoiceAvailable && !speaking}
+              className={`${btnPrimary} mb-6 w-full ${speaking ? '!bg-red-400' : '!bg-indigo-500 !text-white'}`}
+              aria-label={speaking ? 'หยุดอ่านเสียง' : 'ฟังเสียงอ่านข้อความทั้งหมด'}>
+              <Icon icon={speaking ? 'mdi:stop' : 'mdi:volume-high'} className='mr-2 inline-block align-middle text-2xl' />
+              {speaking ? 'หยุดอ่าน' : 'ฟังเสียงอ่าน'}
+            </button>
 
             {!thaiVoiceAvailable && (
               <p className='mb-4 text-lg font-bold text-red-700' role='alert'>
@@ -487,11 +399,26 @@ export default function Home() {
               </p>
             )}
 
-            {/* Action buttons — single column for screen reader tab order */}
-            <div className='flex flex-col gap-4'>
+            {/* Full text display */}
+            <div className='mb-6 border-4 border-stone-900 bg-white p-6 shadow-[8px_8px_0px_0px_rgba(28,25,23,1)]'>
+              <label htmlFor='output-text' className='mb-2 block text-lg font-bold text-stone-700'>
+                ข้อความที่แก้ไขแล้ว ({outputText.length.toLocaleString()} ตัวอักษร)
+              </label>
+              <textarea
+                id='output-text'
+                className='resize-vertical w-full border-4 border-stone-300 bg-stone-50 p-4 text-xl leading-relaxed text-stone-900'
+                rows={12}
+                value={outputText}
+                readOnly
+                aria-label='ข้อความทั้งหมดที่แก้ไขแล้ว'
+              />
+            </div>
+
+            {/* Action buttons — responsive grid */}
+            <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
               <button onClick={handleCopy} className={btnSecondary}>
                 <Icon icon='mdi:clipboard-outline' className='mr-2 inline-block align-middle text-2xl' />
-                คัดลอกข้อความทั้งหมด
+                คัดลอกข้อความ
               </button>
 
               <button onClick={handleDownloadTxt} className={btnSecondary}>
@@ -530,7 +457,7 @@ export default function Home() {
         )}
 
         {/* ===== Install App Section ===== */}
-        {isInstalled ? (
+        {!installCheckDone ? null : isInstalled ? (
           <section aria-labelledby='installed-heading' className='mt-16 border-t-4 border-stone-300 pt-10'>
             <div className='flex items-center gap-4 border-4 border-green-700 bg-green-50 p-6 shadow-[6px_6px_0px_0px_rgba(21,128,61,1)]'>
               <Icon icon='mdi:check-circle' className='text-4xl text-green-700' />
@@ -576,11 +503,21 @@ export default function Home() {
                       ต้องใช้ Safari เท่านั้น (ไม่สามารถใช้ Chrome บน iOS ได้)
                     </p>
                     <ol className='list-inside list-decimal space-y-3'>
-                      <li>เปิดเว็บไซต์นี้ด้วย <strong>Safari</strong></li>
-                      <li>กดปุ่ม <strong>แชร์</strong> (ไอคอนสี่เหลี่ยมมีลูกศรชี้ขึ้น) ที่แถบด้านล่าง</li>
-                      <li>เลื่อนลงแล้วเลือก <strong>&quot;เพิ่มไปยังหน้าจอหลัก&quot;</strong> หรือ <strong>&quot;Add to Home Screen&quot;</strong></li>
-                      <li>กด <strong>&quot;เพิ่ม&quot;</strong> เพื่อยืนยัน</li>
-                      <li>แอปจะปรากฏบน <strong>หน้าจอหลัก</strong> เหมือนแอปทั่วไป</li>
+                      <li>
+                        เปิดเว็บไซต์นี้ด้วย <strong>Safari</strong>
+                      </li>
+                      <li>
+                        กดปุ่ม <strong>แชร์</strong> (ไอคอนสี่เหลี่ยมมีลูกศรชี้ขึ้น) ที่แถบด้านล่าง
+                      </li>
+                      <li>
+                        เลื่อนลงแล้วเลือก <strong>&quot;เพิ่มไปยังหน้าจอหลัก&quot;</strong> หรือ <strong>&quot;Add to Home Screen&quot;</strong>
+                      </li>
+                      <li>
+                        กด <strong>&quot;เพิ่ม&quot;</strong> เพื่อยืนยัน
+                      </li>
+                      <li>
+                        แอปจะปรากฏบน <strong>หน้าจอหลัก</strong> เหมือนแอปทั่วไป
+                      </li>
                     </ol>
                   </div>
                 )}

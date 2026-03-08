@@ -866,45 +866,12 @@ export function fixGarbledThai(input: string): string {
   // Phase 9: Encoding mojibake fix
   result = fixEncodingMojibake(result)
 
-  // Phase 10: Thai word segmentation (add spaces between words for screen readers)
-  result = segmentThaiWords(result)
-
   return result
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Phase 7: Formatting artifact fixes
+// Formatting artifact fixes
 // ══════════════════════════════════════════════════════════════════════
-
-// ══════════════════════════════════════════════════════════════════════
-// Phase 10: Thai word segmentation for screen readers
-// ══════════════════════════════════════════════════════════════════════
-
-function segmentThaiWords(text: string): string {
-  if (Intl?.Segmenter === undefined) return text
-
-  const segmenter = new Intl.Segmenter('th', { granularity: 'word' })
-
-  return text
-    .split('\n')
-    .map(line => {
-      if (!line.trim()) return line
-      const segments = [...segmenter.segment(line)]
-      // Join with spaces, but avoid double-spacing (segments already include existing spaces)
-      return segments
-        .map(s => s.segment)
-        .reduce((acc, seg) => {
-          // Don't add space before/after existing whitespace or punctuation
-          if (!acc) return seg
-          const lastChar = acc.at(-1) ?? ''
-          if (lastChar === ' ' || seg === ' ' || /^[\s\p{P}]/u.test(seg) || /[\s\p{P}]$/u.test(lastChar)) {
-            return acc + seg
-          }
-          return acc + ' ' + seg
-        }, '')
-    })
-    .join('\n')
-}
 
 function fixFormattingArtifacts(text: string): string {
   let result = text
