@@ -134,8 +134,6 @@ export default function Home() {
         speakText('กำลังติดตั้งแอปพลิเคชัน')
       }
       setDeferredPrompt(null)
-    } else if (deviceType === 'ios') {
-      setShowInstallGuide(prev => !prev)
     } else {
       setShowInstallGuide(prev => !prev)
     }
@@ -445,67 +443,19 @@ export default function Home() {
             </h2>
             <p className='mb-6 text-lg text-stone-600'>ติดตั้งเป็นแอปเพื่อใช้งานได้สะดวกขึ้น เปิดได้จากหน้าจอหลักโดยไม่ต้องเปิดเบราว์เซอร์</p>
 
-            {/* Windows / Android - direct install */}
-            {(deviceType === 'windows' || deviceType === 'android') && deferredPrompt && (
-              <button onClick={handleInstallClick} className={`${btnPrimary} w-full`}>
+            {/* Windows / Android - always show install button */}
+            {(deviceType === 'windows' || deviceType === 'android') && (
+              <button
+                onClick={handleInstallClick}
+                disabled={!deferredPrompt}
+                className={`${btnPrimary} w-full`}>
                 <Icon icon='mdi:cellphone-arrow-down' className='mr-2 inline-block align-middle text-2xl' />
-                {deviceType === 'windows' ? 'ติดตั้งแอปบน Windows' : 'ติดตั้งแอปบน Android'}
+                {deferredPrompt
+                  ? deviceType === 'windows'
+                    ? 'ติดตั้งแอปบน Windows'
+                    : 'ติดตั้งแอปบน Android'
+                  : 'กำลังเตรียมการติดตั้ง...'}
               </button>
-            )}
-
-            {/* Windows / Android - no prompt available (already installed or unsupported browser) */}
-            {(deviceType === 'windows' || deviceType === 'android') && !deferredPrompt && (
-              <div className='border-4 border-stone-900 bg-white p-6 shadow-[6px_6px_0px_0px_rgba(28,25,23,1)]'>
-                <button
-                  onClick={() => setShowInstallGuide(prev => !prev)}
-                  className={`${btnSecondary} flex items-center justify-center`}
-                  aria-expanded={showInstallGuide}
-                  aria-controls='install-guide'>
-                  <Icon icon='mdi:information-outline' className='mr-2 inline-block text-2xl' />
-                  {showInstallGuide ? 'ซ่อนวิธีติดตั้ง' : 'ดูวิธีติดตั้งด้วยตัวเอง'}
-                </button>
-                {showInstallGuide && (
-                  <div id='install-guide' className='mt-6 space-y-3 text-lg text-stone-700'>
-                    {deviceType === 'windows' ? (
-                      <ol className='list-inside list-decimal space-y-3'>
-                        <li>
-                          เปิดเว็บไซต์นี้ด้วย <strong>Google Chrome</strong> หรือ <strong>Microsoft Edge</strong>
-                        </li>
-                        <li>
-                          กดที่ <strong>เมนู 3 จุด</strong> (มุมขวาบน) หรือกด <strong>Alt + F</strong>
-                        </li>
-                        <li>
-                          เลือก <strong>&quot;ติดตั้งแอป&quot;</strong> หรือ <strong>&quot;Install app&quot;</strong>
-                        </li>
-                        <li>
-                          กด <strong>&quot;ติดตั้ง&quot;</strong> เพื่อยืนยัน
-                        </li>
-                        <li>
-                          แอปจะปรากฏบน <strong>เดสก์ท็อป</strong> และ <strong>Start Menu</strong>
-                        </li>
-                      </ol>
-                    ) : (
-                      <ol className='list-inside list-decimal space-y-3'>
-                        <li>
-                          เปิดเว็บไซต์นี้ด้วย <strong>Google Chrome</strong>
-                        </li>
-                        <li>
-                          กดที่ <strong>เมนู 3 จุด</strong> (มุมขวาบน)
-                        </li>
-                        <li>
-                          เลือก <strong>&quot;ติดตั้งแอป&quot;</strong> หรือ <strong>&quot;Install app&quot;</strong>
-                        </li>
-                        <li>
-                          กด <strong>&quot;ติดตั้ง&quot;</strong> เพื่อยืนยัน
-                        </li>
-                        <li>
-                          แอปจะปรากฏบน <strong>หน้าจอหลัก</strong>
-                        </li>
-                      </ol>
-                    )}
-                  </div>
-                )}
-              </div>
             )}
 
             {/* iOS */}
