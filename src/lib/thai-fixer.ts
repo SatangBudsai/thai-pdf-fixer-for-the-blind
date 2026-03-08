@@ -839,6 +839,7 @@ export function fixGarbledThai(input: string): string {
 
   // Phase 2: Detect & fix severe garbling (Type B)
   const level = detectGarblingLevel(result)
+  console.log('=== GARBLING LEVEL:', level, '===')
   if (level === 'severe') {
     result = fixDigitSubstitutions(result)
     result = fixSymbolSubstitutions(result)
