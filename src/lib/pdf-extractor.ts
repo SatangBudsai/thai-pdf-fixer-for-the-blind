@@ -46,15 +46,15 @@ function buildPageText(items: TextItem[]): string {
     const prev = j > 0 ? items[j - 1] : null
 
     if (prev) {
-      if (prev.hasEOL) {
-        // Previous item ended the line — check for paragraph break
-        const prevY = prev.transform[5]
-        const currY = item.transform[5]
-        const fontSize =
-          Math.abs(prev.transform[0]) || Math.abs(prev.transform[3]) || 12
-        const yGap = Math.abs(prevY - currY)
+      const prevY = prev.transform[5]
+      const currY = item.transform[5]
+      const fontSize =
+        Math.abs(prev.transform[0]) || Math.abs(prev.transform[3]) || 12
+      const yDiff = Math.abs(prevY - currY)
 
-        if (yGap > fontSize * 1.8) {
+      if (yDiff > fontSize * 0.3) {
+        // Different line — detect paragraph break vs line break
+        if (yDiff > fontSize * 1.8) {
           result += '\n\n'
         } else {
           result += '\n'
@@ -63,12 +63,8 @@ function buildPageText(items: TextItem[]): string {
         // Same line — check horizontal gap for space (เว้นวรรค)
         const prevEndX = prev.transform[4] + prev.width
         const currX = item.transform[4]
-        const fontSize =
-          Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 12
         const gap = currX - prevEndX
 
-        // Thai space (เว้นวรรค) is ~0.25× fontSize.
-        // Threshold at 0.1× to catch narrow spaces without false positives.
         if (gap > fontSize * 0.1) {
           result += ' '
         }
