@@ -1,0 +1,30 @@
+{
+  "editor.formatOnSave": true,
+  "headwind.runOnSave": true,
+  "cSpell.ignoreRegExpList": ["/[\\u0E00-\\u0E7F]/g"],
+  "css.lint.unknownAtRules": "ignore",
+  "files.associations": {
+    ".env": "env",
+    ".env.*": "env"
+  },
+  "cSpell.words": [
+    "akar",
+    "clsx",
+    "heroui",
+    "hugeicons",
+    "iconify",
+    "lightbox",
+    "lightboxjs",
+    "lucide",
+    "nextui",
+    "nprogress",
+    "reduxjs",
+    "swiper",
+    "tailwindcss",
+    "tanstack",
+    "usehooks"
+  ],
+  "i18n-ally.localesPaths": ["src/configs/translations/**"],
+  "i18n-ally.keystyle": "nested",
+  "i18n-ally.annotations": false
+}

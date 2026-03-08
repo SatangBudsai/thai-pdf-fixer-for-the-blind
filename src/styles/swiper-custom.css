@@ -1,0 +1,90 @@
+/* Tailwind layers (ต้องแน่ใจว่าไฟล์นี้ถูกประมวลผลโดย Tailwind) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* Container */
+  .promotion-swiper {
+    @apply h-full w-full;
+    /* ใช้ CSS variables ของ Swiper แทนการสไตล์ ::after */
+    --swiper-navigation-size: 18px;
+  }
+
+  /* Slide */
+  .promotion-swiper .swiper-slide {
+    @apply flex items-center justify-center bg-neutral-100;
+  }
+
+  /* Pagination wrapper (ต้องการ !important เลยตั้งด้วย CSS ปกติด้านล่าง) */
+
+  /* Bullets */
+  .promotion-swiper .swiper-pagination-bullet {
+    /* 10px = w-[10px]/h-[10px] */
+    @apply h-[10px] w-[10px] opacity-40 transition-all duration-300 ease-out;
+  }
+
+  .promotion-swiper .swiper-pagination-bullet-active {
+    /* 24px = w-6, ปรับรูปร่างเป็น pill */
+    @apply w-6 rounded-md opacity-100;
+  }
+
+  /* Nav buttons */
+  .promotion-swiper .swiper-button-prev,
+  .promotion-swiper .swiper-button-next {
+    /* base = 32px; จะขยายที่หน้าจอ >=640px ด้านล่าง */
+    @apply h-8 w-8 rounded-full bg-white/90 shadow-md transition-all duration-300 ease-out;
+  }
+
+  .promotion-swiper .swiper-button-prev:hover,
+  .promotion-swiper .swiper-button-next:hover {
+    @apply bg-white shadow-lg;
+  }
+}
+
+/* ---------- Non-@apply bits (ใช้สำหรับ !important / media แบบ max-width) ---------- */
+
+/* Pagination position: mobile 8px, >=640px 12px */
+.promotion-swiper .swiper-pagination {
+  bottom: 8px !important;
+}
+@media (min-width: 640px) {
+  .promotion-swiper .swiper-pagination {
+    bottom: 12px !important;
+  }
+}
+
+/* Nav icon size via CSS variable (แทน ::after font-size) */
+@media (max-width: 640px) {
+  .promotion-swiper {
+    --swiper-navigation-size: 14px;
+  }
+}
+
+/* ปรับขนาดปุ่ม: base 32px, >=640px 40px */
+@media (min-width: 640px) {
+  .promotion-swiper .swiper-button-prev,
+  .promotion-swiper .swiper-button-next {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Bullets: mobile 8px, active 20px */
+@media (max-width: 640px) {
+  .promotion-swiper .swiper-pagination-bullet {
+    width: 8px;
+    height: 8px;
+  }
+  .promotion-swiper .swiper-pagination-bullet-active {
+    width: 20px;
+  }
+}
+
+/* ซ่อนปุ่มนำทางที่จอเล็กมาก (<=480px) */
+@media (max-width: 480px) {
+  .promotion-swiper .swiper-button-prev,
+  .promotion-swiper .swiper-button-next {
+    display: none;
+  }
+}

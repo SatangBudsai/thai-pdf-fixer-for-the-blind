@@ -1,0 +1,36 @@
+@import url(nprogress.css);
+@import url(scrollbar.css);
+@import url(animation.css);
+@import url(apex-chart.css);
+@import url(input.css);
+@import url(swiper-custom.css);
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    @apply min-w-0 border-divider;
+  }
+  .exponent {
+    font-size: 0.9em;
+    vertical-align: sub;
+  }
+}
+
+@layer utilities {
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
