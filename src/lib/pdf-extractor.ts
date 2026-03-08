@@ -18,40 +18,65 @@ export async function extractTextFromPDF(
   for (let i = 1; i <= totalPages; i++) {
     onProgress?.(i, totalPages)
     const page = await pdf.getPage(i)
-    const textContent = await page.getTextContent()
+    // disableNormalization keeps items granular so we can detect gaps for spaces
+    const textContent = await page.getTextContent({ disableNormalization: true })
 
     const items = textContent.items.filter(
-      (item): item is TextItem => 'str' in item
+      (item): item is TextItem => 'str' in item && item.str.length > 0
     )
 
     if (items.length === 0) continue
+    pages.push(buildPageText(items))
+  }
 
-    // Simple approach: concatenate item.str, use hasEOL for line breaks,
-    // detect paragraph breaks from Y gaps
-    let pageText = ''
-    for (let j = 0; j < items.length; j++) {
-      const item = items[j]
-      pageText += item.str
+  return pages.join('\n\n')
+}
 
-      if (item.hasEOL) {
-        // Check if next item is a paragraph break (large Y gap)
-        const next = items[j + 1]
-        if (next) {
-          const currY = item.transform[5]
-          const nextY = next.transform[5]
-          const fontSize = Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 12
-          const yGap = Math.abs(currY - nextY)
-          if (yGap > fontSize * 1.8) {
-            pageText += '\n\n'
-          } else {
-            pageText += '\n'
-          }
+/**
+ * Build text from PDF items in pdfjs reading order (no re-sorting).
+ * - Line breaks: from hasEOL flag
+ * - Paragraph breaks: from large Y gaps (> 1.8× font size)
+ * - Spaces: from horizontal gaps between items on the same line
+ */
+function buildPageText(items: TextItem[]): string {
+  let result = ''
+
+  for (let j = 0; j < items.length; j++) {
+    const item = items[j]
+    const prev = j > 0 ? items[j - 1] : null
+
+    if (prev) {
+      if (prev.hasEOL) {
+        // Previous item ended the line — check for paragraph break
+        const prevY = prev.transform[5]
+        const currY = item.transform[5]
+        const fontSize =
+          Math.abs(prev.transform[0]) || Math.abs(prev.transform[3]) || 12
+        const yGap = Math.abs(prevY - currY)
+
+        if (yGap > fontSize * 1.8) {
+          result += '\n\n'
+        } else {
+          result += '\n'
+        }
+      } else {
+        // Same line — check horizontal gap for space (เว้นวรรค)
+        const prevEndX = prev.transform[4] + prev.width
+        const currX = item.transform[4]
+        const fontSize =
+          Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 12
+        const gap = currX - prevEndX
+
+        // Thai space (เว้นวรรค) is ~0.25× fontSize.
+        // Threshold at 0.1× to catch narrow spaces without false positives.
+        if (gap > fontSize * 0.1) {
+          result += ' '
         }
       }
     }
 
-    if (pageText.trim()) pages.push(pageText.trim())
+    result += item.str
   }
 
-  return pages.join('\n\n')
+  return result
 }
