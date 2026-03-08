@@ -218,11 +218,6 @@ export default function Home() {
         throw new Error('ไม่พบข้อความในไฟล์')
       }
 
-      // DEBUG: log raw extracted text
-      console.log('=== RAW EXTRACTED TEXT (first 500 chars) ===')
-      console.log(rawText.slice(0, 500))
-      console.log('=== END RAW ===')
-
       // Step 1: Fix garbled characters
       announce('กำลังแก้ไขตัวอักษร...')
       await speakAsync('กำลังแก้ไขตัวอักษร')
@@ -230,11 +225,6 @@ export default function Home() {
       const fixedText = await new Promise<string>(resolve => {
         setTimeout(() => resolve(fixGarbledThai(rawText)), 50)
       })
-
-      // DEBUG: log fixed text
-      console.log('=== FIXED TEXT (first 500 chars) ===')
-      console.log(fixedText.slice(0, 500))
-      console.log('=== END FIXED ===')
 
       stopProcessingSound()
       playSFX('success')

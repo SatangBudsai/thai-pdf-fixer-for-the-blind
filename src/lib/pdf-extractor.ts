@@ -18,73 +18,120 @@ export async function extractTextFromPDF(
   for (let i = 1; i <= totalPages; i++) {
     onProgress?.(i, totalPages)
     const page = await pdf.getPage(i)
-    const textContent = await page.getTextContent()
+
+    // disableNormalization gives us more granular text items
+    const textContent = await page.getTextContent({ disableNormalization: true })
 
     const items = textContent.items.filter(
       (item): item is TextItem => 'str' in item && item.str.length > 0
     )
 
     if (items.length === 0) continue
-
-    // DEBUG: log first page's text items
-    if (i === 1) {
-      console.log('=== FIRST 20 TEXT ITEMS ===')
-      items.slice(0, 20).forEach((item, idx) => {
-        console.log(`Item ${idx}: str="${item.str}" width=${item.width} hasEOL=${item.hasEOL} x=${item.transform[4].toFixed(1)} y=${item.transform[5].toFixed(1)} fontSize=${(Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 12).toFixed(1)}`)
-      })
-      console.log('=== END ITEMS ===')
-    }
-
-    pages.push(joinItems(items))
+    pages.push(buildPageText(items))
   }
 
   return pages.join('\n\n')
 }
 
+interface Chunk {
+  str: string
+  x: number
+  y: number
+  endX: number
+  fontSize: number
+}
+
 /**
- * Join text items preserving the PDF's original formatting exactly:
- * - Line breaks: from Y position changes (matches PDF lines exactly)
- * - Paragraph breaks: from large Y gaps (> 1.8x font size)
- * - Spaces: from horizontal gaps (preserves เว้นวรรค exactly as in PDF)
+ * Build text from PDF items by reading their exact positions.
+ *
+ * 1. Convert items to positioned chunks
+ * 2. Group into lines by Y position
+ * 3. Sort each line left-to-right
+ * 4. Insert space when there's a gap ≥ half a space width
+ * 5. Insert newlines between lines, double newline for paragraphs
  */
-function joinItems(items: TextItem[]): string {
-  let result = ''
+function buildPageText(items: TextItem[]): string {
+  // Convert to simple chunks with position info
+  const chunks: Chunk[] = items.map(item => {
+    const fontSize = Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 12
+    return {
+      str: item.str,
+      x: item.transform[4],
+      y: item.transform[5],
+      endX: item.transform[4] + item.width,
+      fontSize,
+    }
+  })
 
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
-    const prevItem = i > 0 ? items[i - 1] : null
+  // Group into lines: items with similar Y are on the same line
+  const lines: Chunk[][] = []
+  let currentLine: Chunk[] = []
+  let lineY = chunks[0]?.y ?? 0
 
-    if (prevItem) {
-      const prevY = prevItem.transform[5]
-      const currY = item.transform[5]
-      const prevFontSize =
-        Math.abs(prevItem.transform[0]) || Math.abs(prevItem.transform[3]) || 12
+  // Sort by Y descending (PDF coords: Y=0 at bottom), then X ascending
+  const sorted = [...chunks].sort((a, b) => {
+    const yDiff = b.y - a.y
+    if (Math.abs(yDiff) > a.fontSize * 0.3) return yDiff > 0 ? -1 : 1
+    return a.x - b.x
+  })
+
+  for (const chunk of sorted) {
+    if (currentLine.length === 0) {
+      currentLine.push(chunk)
+      lineY = chunk.y
+    } else if (Math.abs(chunk.y - lineY) <= chunk.fontSize * 0.3) {
+      // Same line
+      currentLine.push(chunk)
+    } else {
+      // New line
+      lines.push(currentLine)
+      currentLine = [chunk]
+      lineY = chunk.y
+    }
+  }
+  if (currentLine.length > 0) lines.push(currentLine)
+
+  // Build text from lines
+  const textLines: string[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    // Sort left-to-right within line
+    line.sort((a, b) => a.x - b.x)
+
+    let lineText = ''
+    for (let j = 0; j < line.length; j++) {
+      const chunk = line[j]
+
+      if (j > 0) {
+        const prev = line[j - 1]
+        const gap = chunk.x - prev.endX
+        // A space is roughly 0.25× font size.
+        // Use 0.1× as threshold to catch even narrow spaces.
+        const spaceThreshold = chunk.fontSize * 0.1
+        if (gap >= spaceThreshold) {
+          lineText += ' '
+        }
+      }
+
+      lineText += chunk.str
+    }
+
+    // Detect paragraph break vs line break
+    if (i > 0) {
+      const prevLine = lines[i - 1]
+      const prevY = prevLine[0].y
+      const currY = line[0].y
+      const fontSize = prevLine[0].fontSize
       const yGap = Math.abs(prevY - currY)
 
-      if (prevItem.hasEOL || yGap > prevFontSize * 0.5) {
-        // Line or paragraph break detected from Y position change
-        if (yGap > prevFontSize * 1.8) {
-          result += '\n\n' // paragraph break
-        } else {
-          result += '\n' // line break — preserve PDF lines exactly
-        }
-      } else {
-        // Same line — check horizontal gap for spaces
-        const prevEndX = prevItem.transform[4] + prevItem.width
-        const currX = item.transform[4]
-        const fontSize =
-          Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 12
-        const gap = currX - prevEndX
-
-        // Add space if there's a meaningful gap (preserves PDF spacing exactly)
-        if (gap > fontSize * 0.15) {
-          result += ' '
-        }
+      if (yGap > fontSize * 1.8) {
+        textLines.push('') // empty line = paragraph break
       }
     }
 
-    result += item.str
+    textLines.push(lineText)
   }
 
-  return result
+  return textLines.join('\n')
 }

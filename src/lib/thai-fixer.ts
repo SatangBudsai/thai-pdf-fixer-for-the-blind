@@ -236,16 +236,6 @@ function reconstructSaraAm(text: string): string {
   return result
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// Phase 6: General spacing cleanup
-// ══════════════════════════════════════════════════════════════════════
-
-function fixSpacingArtifacts(text: string): string {
-  let result = text
-  result = result.replace(/ {2,}/g, ' ')
-  result = result.replace(/([A-Za-z0-9]) +- +([A-Za-z0-9])/g, '$1-$2')
-  return result
-}
 
 // ══════════════════════════════════════════════════════════════════════
 // Phase 7: Dictionary-based Sara Am correction
@@ -839,7 +829,6 @@ export function fixGarbledThai(input: string): string {
 
   // Phase 2: Detect & fix severe garbling (Type B)
   const level = detectGarblingLevel(result)
-  console.log('=== GARBLING LEVEL:', level, '===')
   if (level === 'severe') {
     result = fixDigitSubstitutions(result)
     result = fixSymbolSubstitutions(result)
@@ -849,39 +838,19 @@ export function fixGarbledThai(input: string): string {
   // Phase 3: Combining character reordering (pdf2txt_th rules)
   result = reorderCombiningChars(result)
 
-  // Phase 4: Remove spaces before/between combining marks
+  // Phase 4: Remove spaces only between consonant and combining marks
+  // (these are extraction artifacts, not real spaces)
   result = removeSpacesAroundCombining(result)
 
   // Phase 5: Sara Am reconstruction (ํ + า → ำ)
   result = reconstructSaraAm(result)
 
-  // Phase 6: General spacing cleanup
-  result = fixSpacingArtifacts(result)
-
-  // Phase 7: Fix formatting artifacts (stray newlines after list numbers)
-  result = fixFormattingArtifacts(result)
-
-  // Phase 8: Dictionary-based Sara Am correction (conservative)
+  // Phase 6: Dictionary-based Sara Am correction (conservative)
   result = fixSaraAmByDictionary(result)
 
-  // Phase 9: Encoding mojibake fix
+  // Phase 7: Encoding mojibake fix
   result = fixEncodingMojibake(result)
 
   return result
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// Formatting artifact fixes
-// ══════════════════════════════════════════════════════════════════════
-
-function fixFormattingArtifacts(text: string): string {
-  let result = text
-
-  // Fix isolated list numbers on their own line: "1.\n\nText" → "1. Text"
-  result = result.replace(/^(\d+\.)\s*\n+\s*/gm, '$1 ')
-
-  // Fix bullet/dash items on their own line
-  result = result.replace(/^([•\-–—])\s*\n+\s*/gm, '$1 ')
-
-  return result
-}
