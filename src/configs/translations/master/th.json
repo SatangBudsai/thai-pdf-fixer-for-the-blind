@@ -1,6 +1,0 @@
-{
-  "master": {
-    "hello": "สวัสดีเเปลภาษา",
-    "hello-user": "สวัสดี {{username}}"
-  }
-}
