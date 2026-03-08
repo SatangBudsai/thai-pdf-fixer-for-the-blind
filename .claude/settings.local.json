@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npx next build)",
-      "Bash(npx tsc --noEmit --pretty)"
+      "Bash(npx tsc --noEmit --pretty)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(node -e \":*)"
     ]
   }
 }

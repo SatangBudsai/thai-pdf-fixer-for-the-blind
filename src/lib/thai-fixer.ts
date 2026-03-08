@@ -1,66 +1,154 @@
 /**
  * Fix garbled Thai text from PDFs.
  *
- * Handles two main garbling patterns:
+ * Handles three main garbling patterns:
  *
- * 1. PDF text extraction artifacts:
+ * 1. PDF text extraction spacing artifacts:
  *    - Spaces inserted before Thai combining characters (่ ้ ็ ์ ั ิ ี ึ ื ุ ู etc.)
- *    - Sara Am (ำ) decomposed: "ท า" → "ทำ", "บ ารุง" → "บำรุง"
+ *    - Sara Am (ำ) decomposed with space: "ท า" → "ทำ"
  *    - Nikhahit (ํ) + Sara Aa (า) not combined into Sara Am (ำ)
+ *    - Multiple spaces from line-break joins
+ *    - Spaces around hyphens: "C - 17" → "C-17"
  *
- * 2. TIS-620 / Windows-874 encoding misread as Latin-1 (mojibake):
+ * 2. Lost Sara Am (ำ → า) without spaces:
+ *    - Nikhahit completely lost: "ทาตาม" → "ทำตาม", "สาคัญ" → "สำคัญ"
+ *    - Uses Intl.Segmenter to detect whether า should be ำ
+ *    - Covers ALL Thai words (browser built-in dictionary)
+ *
+ * 3. TIS-620 / Windows-874 encoding misread as Latin-1 (mojibake):
  *    - Bytes in 0xA1-0xFB mapped back to Thai Unicode U+0E01-U+0E5B
  */
 
-// Thai combining characters: vowels above/below, tone marks, etc.
-// These should never be preceded by a space in proper Thai text.
-// U+0E31 (mai han akat), U+0E34-U+0E3A (sara i/ii/ue/uee/u/uu/pinthu),
-// U+0E47-U+0E4E (mai tai khu, mai ek, mai tho, mai tri, mai chattawa, thanthakhat, nikhahit, yamakkan)
+// Thai combining characters
 const THAI_COMBINING_RE = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/
 
 // Thai consonants: U+0E01-U+0E2E
 const THAI_CONSONANT_RE = /[\u0E01-\u0E2E]/
 
-// Thai above-vowels that sit on consonants (สระบน): U+0E34-U+0E39 (ิ ี ึ ื ุ ู)
+// Thai above/below vowels: U+0E34-U+0E39 (ิ ี ึ ื ุ ู)
 const THAI_ABOVE_BELOW_VOWEL_RE = /[\u0E34-\u0E39]/
 
 /**
- * Fix PDF extraction artifacts: remove spurious spaces before combining marks
- * and reassemble decomposed Sara Am.
+ * Fix spaces before combining marks and reassemble decomposed Sara Am (with spaces).
  */
 function fixPdfSpacing(text: string): string {
   let result = text
 
   // Step 1: Remove spaces before Thai combining characters
-  // Pattern: any char + space(s) + combining mark → remove the space(s)
-  // e.g., "สิ ่ง" → "สิ่ง", "นี ้" → "นี้", "มั ่น" → "มั่น"
   result = result.replace(
     new RegExp(`(.) +(${THAI_COMBINING_RE.source})`, 'g'),
     '$1$2'
   )
 
-  // Step 2: Reassemble decomposed Sara Am (ำ)
-  // In PDFs, ำ is often split as: consonant + space + า (sara aa)
-  // But only when the consonant doesn't already have an above/below vowel.
-  // Pattern: Thai consonant (possibly with combining marks) + space + า → consonant + ำ
-  // e.g., "ท า" → "ทำ", "บ ารุง" → "บำรุง", "น า" → "นำ"
+  // Step 2: Reassemble decomposed Sara Am with space: consonant + space + า → consonant + ำ
   result = result.replace(
     new RegExp(
       `(${THAI_CONSONANT_RE.source})(${THAI_COMBINING_RE.source}*) +\u0E32`,
       'g'
     ),
     (match, consonant: string, combiningMarks: string) => {
-      // If there's already an above/below vowel, don't convert — it's likely a real "า"
       if (THAI_ABOVE_BELOW_VOWEL_RE.test(combiningMarks)) {
         return match
       }
-      return consonant + combiningMarks + '\u0E33' // ำ
+      return consonant + combiningMarks + '\u0E33'
     }
   )
 
-  // Step 3: Combine standalone Nikhahit (ํ) + Sara Aa (า) into Sara Am (ำ)
-  // Some PDFs decompose ำ as ํ + า without spaces
+  // Step 3: Combine standalone Nikhahit (ํ) + Sara Aa (า) → Sara Am (ำ)
   result = result.replace(/\u0E4D\u0E32/g, '\u0E33')
+
+  return result
+}
+
+/**
+ * Count word-like segments using Intl.Segmenter.
+ * Fewer segments generally means better word boundaries (more recognized words).
+ */
+function countWordSegments(text: string): number {
+  const segmenter = new Intl.Segmenter('th', { granularity: 'word' })
+  let count = 0
+  for (const seg of segmenter.segment(text)) {
+    if (seg.isWordLike) count++
+  }
+  return count
+}
+
+/**
+ * Fix lost Sara Am using Intl.Segmenter for Thai word boundary detection.
+ * When PDFs completely lose the nikhahit, ำ becomes า without any space.
+ *
+ * Algorithm: Find each Thai consonant + า sequence. Try replacing า with ำ.
+ * If the ำ version produces fewer word-like segments (= better recognized words),
+ * keep the ำ version. This covers ALL Thai words via the browser's built-in dictionary.
+ */
+function fixLostSaraAm(text: string): string {
+  if (typeof Intl?.Segmenter !== 'function') return text
+
+  // Match: Thai consonant (optionally with tone/combining marks) followed by า (Sara Aa)
+  // We need to check each occurrence and decide if it should be ำ (Sara Am)
+  const SARA_AA = '\u0E32' // า
+  const SARA_AM = '\u0E33' // ำ
+
+  // Find all positions of า that follow a Thai consonant (with optional combining marks)
+  const pattern = new RegExp(
+    `(${THAI_CONSONANT_RE.source})(${THAI_COMBINING_RE.source}*)${SARA_AA}`,
+    'g'
+  )
+
+  // Collect all match positions first
+  const matches: { index: number; length: number; consonant: string; marks: string }[] = []
+  let m: RegExpExecArray | null
+  while ((m = pattern.exec(text)) !== null) {
+    // Skip if there are above/below vowels in the combining marks (can't be ำ)
+    if (THAI_ABOVE_BELOW_VOWEL_RE.test(m[2])) continue
+    matches.push({
+      index: m.index,
+      length: m[0].length,
+      consonant: m[1],
+      marks: m[2]
+    })
+  }
+
+  if (matches.length === 0) return text
+
+  // Process each match: extract a context window around each า and test า vs ำ
+  const result = text.split('')
+  for (const match of matches) {
+    // Extract a context window around this position for segmentation comparison
+    const contextStart = Math.max(0, match.index - 10)
+    const contextEnd = Math.min(text.length, match.index + match.length + 10)
+
+    const originalChunk = text.slice(contextStart, contextEnd)
+    const modifiedChunk =
+      text.slice(contextStart, match.index) +
+      match.consonant + match.marks + SARA_AM +
+      text.slice(match.index + match.length, contextEnd)
+
+    const originalSegments = countWordSegments(originalChunk)
+    const modifiedSegments = countWordSegments(modifiedChunk)
+
+    // If ำ version produces fewer word segments, it's a better match
+    if (modifiedSegments < originalSegments) {
+      // Replace า with ำ at this position
+      const saraAaPos = match.index + match.consonant.length + match.marks.length
+      result[saraAaPos] = SARA_AM
+    }
+  }
+
+  return result.join('')
+}
+
+/**
+ * Normalize multiple spaces and fix spacing artifacts from PDF line breaks.
+ */
+function fixSpacingArtifacts(text: string): string {
+  let result = text
+
+  // Collapse all runs of 2+ spaces to a single space.
+  result = result.replace(/ {2,}/g, ' ')
+
+  // Spaces around hyphens in alphanumeric context: "C - 17" → "C-17"
+  result = result.replace(/([A-Za-z0-9]) +- +([A-Za-z0-9])/g, '$1-$2')
 
   return result
 }
@@ -121,10 +209,16 @@ function hasLatinHighBytes(text: string): boolean {
 export function fixGarbledThai(input: string): string {
   if (!input.trim()) return ''
 
-  // Strategy 1: Always apply PDF spacing fixes (safe for all Thai text)
+  // Step 1: Fix spaces before combining marks and decomposed Sara Am (with spaces)
   let result = fixPdfSpacing(input)
 
-  // Strategy 2: If text has Latin high-byte characters, try encoding fixes
+  // Step 2: Fix spacing artifacts (multiple spaces, hyphens)
+  result = fixSpacingArtifacts(result)
+
+  // Step 3: Fix lost Sara Am using dictionary (า → ำ without spaces)
+  result = fixLostSaraAm(result)
+
+  // Step 4: If text has Latin high-byte characters, try encoding fixes
   if (hasLatinHighBytes(result)) {
     const strategies = [
       { fn: tis620ToUnicode },
