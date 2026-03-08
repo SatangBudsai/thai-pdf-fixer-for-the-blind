@@ -4,12 +4,12 @@ export default function Document() {
   return (
     <Html lang="th">
       <Head>
-        <meta name="theme-color" content="#000000" />
+        <meta name="theme-color" content="#fafaf9" />
         <meta name="description" content="เครื่องมือแก้ไขข้อความภาษาไทยที่อ่านไม่ออกจากไฟล์ PDF สำหรับผู้พิการทางสายตา" />
         <link rel="manifest" href="/manifest.json" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
-      <body className="bg-black text-white">
+      <body className="bg-stone-50 text-stone-900">
         <Main />
         <NextScript />
       </body>

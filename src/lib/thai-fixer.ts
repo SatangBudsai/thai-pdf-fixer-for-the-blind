@@ -28,6 +28,9 @@ const THAI_CONSONANT_RE = /[\u0E01-\u0E2E]/
 // Thai above/below vowels: U+0E34-U+0E39 (ิ ี ึ ื ุ ู)
 const THAI_ABOVE_BELOW_VOWEL_RE = /[\u0E34-\u0E39]/
 
+// Thai tone marks: U+0E48-U+0E4B (่ ้ ๊ ๋)
+const THAI_TONE_MARK_RE = /[\u0E48-\u0E4B]/
+
 /**
  * Fix spaces before combining marks and reassemble decomposed Sara Am (with spaces).
  */
@@ -154,6 +157,68 @@ function fixSpacingArtifacts(text: string): string {
 }
 
 /**
+ * Fix misplaced Sara Am (ำ→า).
+ * Some PDFs garble า into ำ in wrong positions.
+ */
+function fixMisplacedSaraAm(text: string): string {
+  const SARA_AA = '\u0E32' // า
+  const SARA_AM = '\u0E33' // ำ
+
+  // Rule 1: ำ after a tone mark (่ ้ ๊ ๋) is always invalid → replace with า
+  // e.g. ฆ่ำ → ฆ่า
+  let result = text.replace(
+    new RegExp(`(${THAI_TONE_MARK_RE.source})${SARA_AM}`, 'g'),
+    `$1${SARA_AA}`
+  )
+
+  // Rule 2: Use Intl.Segmenter reverse check — if า produces fewer segments than ำ, use า
+  if (typeof Intl?.Segmenter !== 'function') return result
+
+  const pattern = new RegExp(
+    `(${THAI_CONSONANT_RE.source})(${THAI_COMBINING_RE.source}*)${SARA_AM}`,
+    'g'
+  )
+
+  const matches: { index: number; length: number; consonant: string; marks: string }[] = []
+  let m: RegExpExecArray | null
+  while ((m = pattern.exec(result)) !== null) {
+    // Skip if combining marks contain above/below vowels (valid ำ position)
+    if (THAI_ABOVE_BELOW_VOWEL_RE.test(m[2])) continue
+    matches.push({
+      index: m.index,
+      length: m[0].length,
+      consonant: m[1],
+      marks: m[2]
+    })
+  }
+
+  if (matches.length === 0) return result
+
+  const chars = result.split('')
+  for (const match of matches) {
+    const contextStart = Math.max(0, match.index - 10)
+    const contextEnd = Math.min(result.length, match.index + match.length + 10)
+
+    const originalChunk = result.slice(contextStart, contextEnd)
+    const modifiedChunk =
+      result.slice(contextStart, match.index) +
+      match.consonant + match.marks + SARA_AA +
+      result.slice(match.index + match.length, contextEnd)
+
+    const originalSegments = countWordSegments(originalChunk)
+    const modifiedSegments = countWordSegments(modifiedChunk)
+
+    // If า version produces fewer word segments, replace ำ→า
+    if (modifiedSegments < originalSegments) {
+      const saraAmPos = match.index + match.consonant.length + match.marks.length
+      chars[saraAmPos] = SARA_AA
+    }
+  }
+
+  return chars.join('')
+}
+
+/**
  * Fix TIS-620/Windows-874 → Latin-1 mojibake.
  */
 function tis620ToUnicode(garbled: string): string {
@@ -215,10 +280,13 @@ export function fixGarbledThai(input: string): string {
   // Step 2: Fix spacing artifacts (multiple spaces, hyphens)
   result = fixSpacingArtifacts(result)
 
-  // Step 3: Fix lost Sara Am using dictionary (า → ำ without spaces)
+  // Step 3: Fix misplaced Sara Am (ำ→า where ำ is wrong)
+  result = fixMisplacedSaraAm(result)
+
+  // Step 4: Fix lost Sara Am (า→ำ where า should be ำ)
   result = fixLostSaraAm(result)
 
-  // Step 4: If text has Latin high-byte characters, try encoding fixes
+  // Step 5: If text has Latin high-byte characters, try encoding fixes
   if (hasLatinHighBytes(result)) {
     const strategies = [
       { fn: tis620ToUnicode },

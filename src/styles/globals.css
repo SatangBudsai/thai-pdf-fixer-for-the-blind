@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply bg-black text-white text-2xl leading-relaxed;
+    @apply bg-stone-50 text-stone-900 text-2xl leading-relaxed;
   }
 
   /* Massive focus ring for ALL interactive elements - screen reader discovery */
@@ -14,12 +14,12 @@
   textarea:focus-visible,
   select:focus-visible,
   [tabindex]:focus-visible {
-    @apply outline-none ring-8 ring-yellow-400 ring-offset-4 ring-offset-black;
+    @apply outline-none ring-8 ring-amber-400 ring-offset-4 ring-offset-stone-50;
   }
 
   /* Skip link: hidden until focused */
   .skip-link {
-    @apply absolute left-0 top-0 -translate-y-full bg-yellow-400 text-black p-4 text-3xl font-bold z-50 transition-transform;
+    @apply absolute left-0 top-0 -translate-y-full bg-amber-400 text-stone-900 p-4 text-3xl font-bold z-50 transition-transform;
   }
 
   .skip-link:focus {
