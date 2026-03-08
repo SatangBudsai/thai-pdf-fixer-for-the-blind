@@ -183,9 +183,9 @@ function reorderCombiningChars(text: string): string {
   // Example: กิ ่ → กิ่
   result = result.replace(new RegExp(`([${COMBINING_VOWELS}])\\s+([${TONE_MARKS}])`, 'g'), '$1$2')
 
-  // Rule 3: Whitespace before combining vowel → remove
+  // Rule 3: Spaces/tabs before combining vowel → remove (preserve newlines)
   // Example: ก ิ → กิ (space before sara i)
-  result = result.replace(new RegExp(`\\s+(?=[${COMBINING_VOWELS}])`, 'g'), '')
+  result = result.replace(new RegExp(String.raw`[ \t]+(?=[${COMBINING_VOWELS}])`, 'g'), '')
 
   // Rule 4 (pdf2txt_th special case): ู + consonant + tone mark before ำ
   // Reorder: ู + tone + consonant
@@ -201,9 +201,9 @@ function reorderCombiningChars(text: string): string {
 function removeSpacesAroundCombining(text: string): string {
   let result = text
 
-  // Remove space between any character and a Thai combining mark
-  // This is more general than the pdf2txt_th rules — catches all cases
-  result = result.replace(new RegExp(`(.) +([${ABOVE_BELOW}\u0E47-\u0E4E])`, 'g'), '$1$2')
+  // Remove space between Thai consonant and a combining mark
+  // Only after consonants (not any char) to preserve word-boundary spaces
+  result = result.replace(new RegExp(`([${CONSONANTS}]) +([${ABOVE_BELOW}\u0E47-\u0E4E])`, 'g'), '$1$2')
 
   // Also remove space between consonant and sara aa (า) when followed by
   // another combining mark (which indicates decomposed sara am)
@@ -866,12 +866,45 @@ export function fixGarbledThai(input: string): string {
   // Phase 9: Encoding mojibake fix
   result = fixEncodingMojibake(result)
 
+  // Phase 10: Thai word segmentation (add spaces between words for screen readers)
+  result = segmentThaiWords(result)
+
   return result
 }
 
 // ══════════════════════════════════════════════════════════════════════
 // Phase 7: Formatting artifact fixes
 // ══════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════
+// Phase 10: Thai word segmentation for screen readers
+// ══════════════════════════════════════════════════════════════════════
+
+function segmentThaiWords(text: string): string {
+  if (Intl?.Segmenter === undefined) return text
+
+  const segmenter = new Intl.Segmenter('th', { granularity: 'word' })
+
+  return text
+    .split('\n')
+    .map(line => {
+      if (!line.trim()) return line
+      const segments = [...segmenter.segment(line)]
+      // Join with spaces, but avoid double-spacing (segments already include existing spaces)
+      return segments
+        .map(s => s.segment)
+        .reduce((acc, seg) => {
+          // Don't add space before/after existing whitespace or punctuation
+          if (!acc) return seg
+          const lastChar = acc.at(-1) ?? ''
+          if (lastChar === ' ' || seg === ' ' || /^[\s\p{P}]/u.test(seg) || /[\s\p{P}]$/u.test(lastChar)) {
+            return acc + seg
+          }
+          return acc + ' ' + seg
+        }, '')
+    })
+    .join('\n')
+}
 
 function fixFormattingArtifacts(text: string): string {
   let result = text

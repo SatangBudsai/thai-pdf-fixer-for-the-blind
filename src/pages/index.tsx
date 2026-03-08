@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { Icon } from '@iconify/react'
 import Head from 'next/head'
 import Image from 'next/image'
@@ -47,17 +47,17 @@ const btnSecondary = [
   'disabled:opacity-50 disabled:cursor-not-allowed'
 ].join(' ')
 
-const btnAction = [
-  'w-full px-6 py-4 text-xl font-bold',
-  'bg-indigo-600 text-white',
+const btnNav = [
+  'flex-1 px-4 py-4 text-lg font-bold',
+  'bg-stone-100 text-stone-900',
   'border-4 border-stone-900',
-  'shadow-[6px_6px_0px_0px_rgba(28,25,23,1)]',
-  'hover:shadow-[3px_3px_0px_0px_rgba(28,25,23,1)]',
-  'hover:translate-x-[3px] hover:translate-y-[3px]',
-  'active:shadow-none active:translate-x-[6px] active:translate-y-[6px]',
+  'shadow-[4px_4px_0px_0px_rgba(28,25,23,1)]',
+  'hover:shadow-[2px_2px_0px_0px_rgba(28,25,23,1)]',
+  'hover:translate-x-[2px] hover:translate-y-[2px]',
+  'active:shadow-none active:translate-x-[4px] active:translate-y-[4px]',
   'transition-all duration-100',
   'focus:outline-none focus:ring-8 focus:ring-amber-400 focus:ring-offset-4 focus:ring-offset-stone-50',
-  'disabled:opacity-50 disabled:cursor-not-allowed'
+  'disabled:opacity-30 disabled:cursor-not-allowed'
 ].join(' ')
 
 type DeviceType = 'windows' | 'android' | 'ios' | 'other'
@@ -92,10 +92,19 @@ export default function Home() {
   const [deviceType, setDeviceType] = useState<DeviceType>('other')
   const [isInstalled, setIsInstalled] = useState(false)
   const [showInstallGuide, setShowInstallGuide] = useState(false)
+  const [currentParagraph, setCurrentParagraph] = useState(0)
+  const [showFullText, setShowFullText] = useState(false)
+  const installPromptFired = useRef(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const processingAudioRef = useRef<HTMLAudioElement | null>(null)
-  const resultHeadingRef = useRef<HTMLHeadingElement>(null)
+  const readBtnRef = useRef<HTMLButtonElement>(null)
+  const retryBtnRef = useRef<HTMLButtonElement>(null)
+
+  const paragraphs = useMemo(
+    () => outputText.split(/\n\n+/).filter(p => p.trim()),
+    [outputText]
+  )
 
   useEffect(() => {
     setDeviceType(detectDevice())
@@ -106,6 +115,7 @@ export default function Home() {
     const handler = (e: Event) => {
       e.preventDefault()
       setDeferredPrompt(e)
+      installPromptFired.current = true
     }
     globalThis.addEventListener('beforeinstallprompt', handler)
 
@@ -115,9 +125,18 @@ export default function Home() {
     }
     globalThis.addEventListener('appinstalled', installedHandler)
 
+    // If no beforeinstallprompt fires within 3s and not standalone,
+    // the app is likely already installed (browser won't fire the event)
+    const timeout = setTimeout(() => {
+      if (!installPromptFired.current && !isStandalone()) {
+        setIsInstalled(true)
+      }
+    }, 3000)
+
     return () => {
       globalThis.removeEventListener('beforeinstallprompt', handler)
       globalThis.removeEventListener('appinstalled', installedHandler)
+      clearTimeout(timeout)
     }
   }, [])
 
@@ -181,6 +200,8 @@ export default function Home() {
     setPhase('processing')
     setOutputText('')
     setErrorMessage('')
+    setCurrentParagraph(0)
+    setShowFullText(false)
 
     playSFX('upload')
     speakText('รับไฟล์แล้ว กำลังเริ่มแก้ไขข้อความ โปรดรอสักครู่')
@@ -212,11 +233,14 @@ export default function Home() {
       playSFX('success')
       setOutputText(fixedText)
       setPhase('done')
-      speakText('แก้ไขสำเร็จแล้ว ผลลัพธ์พร้อมใช้งาน')
-      announce('แก้ไขสำเร็จแล้ว ผลลัพธ์พร้อมใช้งาน')
+
+      const pCount = fixedText.split(/\n\n+/).filter(p => p.trim()).length
+      const doneMsg = `แก้ไขสำเร็จแล้ว มี ${pCount} ย่อหน้า กดปุ่มอ่านเพื่อฟัง`
+      speakText(doneMsg)
+      announce(doneMsg)
 
       requestAnimationFrame(() => {
-        resultHeadingRef.current?.focus()
+        readBtnRef.current?.focus()
       })
     } catch (err) {
       stopProcessingSound()
@@ -226,13 +250,17 @@ export default function Home() {
       setPhase('error')
       speakText(msg)
       announce(msg)
+      requestAnimationFrame(() => {
+        retryBtnRef.current?.focus()
+      })
     }
 
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const handleSpeak = () => {
-    if (!outputText.trim()) return
+  const handleReadParagraph = () => {
+    const text = paragraphs[currentParagraph]
+    if (!text) return
 
     if (speaking) {
       stopSpeech()
@@ -240,12 +268,21 @@ export default function Home() {
       announce('หยุดอ่านเสียงแล้ว')
     } else {
       setSpeaking(true)
-      announce('กำลังเล่นเสียงข้อความ')
-      speakText(outputText, () => {
+      announce(`กำลังอ่านย่อหน้าที่ ${currentParagraph + 1}`)
+      speakText(text, () => {
         setSpeaking(false)
-        announce('อ่านเสียงข้อความจบแล้ว')
+        announce('อ่านจบแล้ว')
       })
     }
+  }
+
+  const goToParagraph = (index: number) => {
+    if (index < 0 || index >= paragraphs.length) return
+    stopSpeech()
+    setSpeaking(false)
+    setCurrentParagraph(index)
+    const preview = paragraphs[index].slice(0, 40)
+    announce(`ย่อหน้าที่ ${index + 1} จาก ${paragraphs.length}: ${preview}`)
   }
 
   const handleCopy = async () => {
@@ -253,7 +290,7 @@ export default function Home() {
     const success = await copyToClipboard(outputText)
     if (success) {
       playSFX('success')
-      announce('คัดลอกข้อความไปยังคลิปบอร์ดแล้ว')
+      announce('คัดลอกข้อความทั้งหมดแล้ว')
       speakText('คัดลอกข้อความแล้ว')
     } else {
       playSFX('error')
@@ -292,6 +329,8 @@ export default function Home() {
     setOutputText('')
     setErrorMessage('')
     setFileName('')
+    setCurrentParagraph(0)
+    setShowFullText(false)
     announce('พร้อมเริ่มใหม่ กรุณาอัปโหลดไฟล์')
     speakText('พร้อมเริ่มใหม่')
   }
@@ -371,64 +410,102 @@ export default function Home() {
         {phase === 'done' && (
           <section aria-labelledby='result-heading'>
             <h2
-              ref={resultHeadingRef}
               id='result-heading'
-              tabIndex={-1}
-              className='mb-6 text-3xl font-bold text-indigo-600 focus:outline-none focus:ring-8 focus:ring-amber-400 focus:ring-offset-4 focus:ring-offset-stone-50'>
+              className='mb-6 text-3xl font-bold text-indigo-600'>
               ผลลัพธ์ที่แก้ไขแล้ว
             </h2>
 
-            <div className='border-4 border-stone-900 bg-white p-6 shadow-[8px_8px_0px_0px_rgba(28,25,23,1)]'>
-              <label htmlFor='output-text' className='mb-3 block text-lg font-bold text-stone-700'>
-                ข้อความภาษาไทยที่แก้ไขแล้ว ({outputText.length} ตัวอักษร)
-              </label>
-              <textarea
-                id='output-text'
-                className='resize-vertical w-full border-4 border-stone-900 bg-stone-50 p-4 text-xl text-stone-900'
-                rows={10}
-                value={outputText}
-                readOnly
-              />
-            </div>
+            {/* Paragraph navigator */}
+            <div className='mb-6 border-4 border-stone-900 bg-white p-6 shadow-[8px_8px_0px_0px_rgba(28,25,23,1)]'>
+              <p className='mb-4 text-center text-lg font-bold text-stone-700' aria-live='polite'>
+                ย่อหน้าที่ {currentParagraph + 1} จาก {paragraphs.length}
+              </p>
 
-            <div className='mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2'>
+              {/* Navigation row */}
+              <div className='mb-4 flex gap-3'>
+                <button
+                  onClick={() => goToParagraph(currentParagraph - 1)}
+                  disabled={currentParagraph === 0}
+                  className={btnNav}
+                  aria-label='ย่อหน้าก่อนหน้า'>
+                  <Icon icon='mdi:chevron-left' className='mr-1 inline-block align-middle text-2xl' />
+                  ก่อนหน้า
+                </button>
+
+                <button
+                  ref={readBtnRef}
+                  onClick={handleReadParagraph}
+                  disabled={!thaiVoiceAvailable && !speaking}
+                  className={btnNav.replace('bg-stone-100', speaking ? 'bg-red-100' : 'bg-indigo-100')}
+                  aria-label={speaking ? 'หยุดอ่าน' : `อ่านย่อหน้าที่ ${currentParagraph + 1}`}>
+                  <Icon icon={speaking ? 'mdi:stop' : 'mdi:volume-high'} className='mr-1 inline-block align-middle text-2xl' />
+                  {speaking ? 'หยุด' : 'อ่าน'}
+                </button>
+
+                <button
+                  onClick={() => goToParagraph(currentParagraph + 1)}
+                  disabled={currentParagraph >= paragraphs.length - 1}
+                  className={btnNav}
+                  aria-label='ย่อหน้าถัดไป'>
+                  ถัดไป
+                  <Icon icon='mdi:chevron-right' className='ml-1 inline-block align-middle text-2xl' />
+                </button>
+              </div>
+
+              {/* Current paragraph text */}
+              <div
+                className='min-h-[120px] border-4 border-stone-300 bg-stone-50 p-4 text-xl leading-relaxed text-stone-900'
+                role='region'
+                aria-label={`เนื้อหาย่อหน้าที่ ${currentParagraph + 1}`}
+                tabIndex={0}>
+                {paragraphs[currentParagraph] ?? ''}
+              </div>
+
+              {/* Toggle full text */}
               <button
-                onClick={handleSpeak}
-                disabled={!thaiVoiceAvailable && !speaking}
-                className={btnAction}
-                aria-label={speaking ? 'หยุดเล่นเสียง' : 'ฟังเสียงอ่านข้อความที่แก้ไขแล้ว'}>
-                {speaking ? (
-                  <>
-                    <Icon icon='mdi:stop' className='mr-2 inline-block align-middle text-2xl' /> หยุดเสียง
-                  </>
-                ) : (
-                  <>
-                    <Icon icon='mdi:volume-high' className='mr-2 inline-block align-middle text-2xl' /> ฟังเสียงอ่าน
-                  </>
-                )}
+                onClick={() => setShowFullText(prev => !prev)}
+                className='mt-4 w-full text-center text-lg font-bold text-indigo-600 underline underline-offset-4 focus:outline-none focus:ring-8 focus:ring-amber-400 focus:ring-offset-4'
+                aria-expanded={showFullText}>
+                {showFullText ? 'ซ่อนข้อความทั้งหมด' : `ดูข้อความทั้งหมด (${outputText.length} ตัวอักษร)`}
               </button>
 
-              <button onClick={handleCopy} className={btnSecondary}>
-                <Icon icon='mdi:clipboard-outline' className='mr-2 inline-block align-middle text-2xl' /> คัดลอกข้อความ
-              </button>
-
-              <button onClick={handleDownloadTxt} className={btnSecondary}>
-                <Icon icon='mdi:file-document-outline' className='mr-2 inline-block align-middle text-2xl' /> ดาวน์โหลด .txt
-              </button>
-
-              <button onClick={handleDownloadDocx} className={btnSecondary}>
-                <Icon icon='mdi:file-word-outline' className='mr-2 inline-block align-middle text-2xl' /> ดาวน์โหลด .docx
-              </button>
+              {showFullText && (
+                <textarea
+                  id='output-text'
+                  className='mt-4 w-full resize-vertical border-4 border-stone-300 bg-stone-50 p-4 text-xl text-stone-900'
+                  rows={10}
+                  value={outputText}
+                  readOnly
+                  aria-label='ข้อความทั้งหมดที่แก้ไขแล้ว'
+                />
+              )}
             </div>
 
             {!thaiVoiceAvailable && (
-              <p className='mt-4 text-lg font-bold text-red-700' role='alert'>
+              <p className='mb-4 text-lg font-bold text-red-700' role='alert'>
                 ไม่พบเสียงภาษาไทยในระบบ ฟังก์ชันอ่านเสียงอาจไม่ทำงาน
               </p>
             )}
 
-            <div className='mt-10'>
+            {/* Action buttons — single column for screen reader tab order */}
+            <div className='flex flex-col gap-4'>
+              <button onClick={handleCopy} className={btnSecondary}>
+                <Icon icon='mdi:clipboard-outline' className='mr-2 inline-block align-middle text-2xl' />
+                คัดลอกข้อความทั้งหมด
+              </button>
+
+              <button onClick={handleDownloadTxt} className={btnSecondary}>
+                <Icon icon='mdi:file-document-outline' className='mr-2 inline-block align-middle text-2xl' />
+                ดาวน์โหลด .txt
+              </button>
+
+              <button onClick={handleDownloadDocx} className={btnSecondary}>
+                <Icon icon='mdi:file-word-outline' className='mr-2 inline-block align-middle text-2xl' />
+                ดาวน์โหลด .docx
+              </button>
+
               <button onClick={handleStartOver} className={`${btnPrimary} w-full`}>
+                <Icon icon='mdi:refresh' className='mr-2 inline-block align-middle text-2xl' />
                 เริ่มใหม่
               </button>
             </div>
@@ -445,7 +522,7 @@ export default function Home() {
               <p className='text-2xl font-bold text-red-900'>{errorMessage}</p>
             </div>
             <div className='mt-8'>
-              <button onClick={handleStartOver} className={`${btnPrimary} w-full`}>
+              <button ref={retryBtnRef} onClick={handleStartOver} className={`${btnPrimary} w-full`}>
                 ลองใหม่
               </button>
             </div>
@@ -473,11 +550,11 @@ export default function Home() {
             </h2>
             <p className='mb-6 text-lg text-stone-600'>ติดตั้งเป็นแอปเพื่อใช้งานได้สะดวกขึ้น เปิดได้จากหน้าจอหลักโดยไม่ต้องเปิดเบราว์เซอร์</p>
 
-            {/* Windows / Android - always show install button */}
-            {(deviceType === 'windows' || deviceType === 'android') && (
-              <button onClick={handleInstallClick} disabled={!deferredPrompt} className={`${btnPrimary} w-full`}>
+            {/* Windows / Android */}
+            {(deviceType === 'windows' || deviceType === 'android') && deferredPrompt && (
+              <button onClick={handleInstallClick} className={`${btnPrimary} w-full`}>
                 <Icon icon='mdi:cellphone-arrow-down' className='mr-2 inline-block align-middle text-2xl' />
-                {deferredPrompt ? (deviceType === 'windows' ? 'ติดตั้งแอปบน Windows' : 'ติดตั้งแอปบน Android') : 'กำลังเตรียมการติดตั้ง...'}
+                {deviceType === 'windows' ? 'ติดตั้งแอปบน Windows' : 'ติดตั้งแอปบน Android'}
               </button>
             )}
 
@@ -499,21 +576,11 @@ export default function Home() {
                       ต้องใช้ Safari เท่านั้น (ไม่สามารถใช้ Chrome บน iOS ได้)
                     </p>
                     <ol className='list-inside list-decimal space-y-3'>
-                      <li>
-                        เปิดเว็บไซต์นี้ด้วย <strong>Safari</strong>
-                      </li>
-                      <li>
-                        กดปุ่ม <strong>แชร์</strong> (ไอคอนสี่เหลี่ยมมีลูกศรชี้ขึ้น) ที่แถบด้านล่าง
-                      </li>
-                      <li>
-                        เลื่อนลงแล้วเลือก <strong>&quot;เพิ่มไปยังหน้าจอหลัก&quot;</strong> หรือ <strong>&quot;Add to Home Screen&quot;</strong>
-                      </li>
-                      <li>
-                        กด <strong>&quot;เพิ่ม&quot;</strong> เพื่อยืนยัน
-                      </li>
-                      <li>
-                        แอปจะปรากฏบน <strong>หน้าจอหลัก</strong> เหมือนแอปทั่วไป
-                      </li>
+                      <li>เปิดเว็บไซต์นี้ด้วย <strong>Safari</strong></li>
+                      <li>กดปุ่ม <strong>แชร์</strong> (ไอคอนสี่เหลี่ยมมีลูกศรชี้ขึ้น) ที่แถบด้านล่าง</li>
+                      <li>เลื่อนลงแล้วเลือก <strong>&quot;เพิ่มไปยังหน้าจอหลัก&quot;</strong> หรือ <strong>&quot;Add to Home Screen&quot;</strong></li>
+                      <li>กด <strong>&quot;เพิ่ม&quot;</strong> เพื่อยืนยัน</li>
+                      <li>แอปจะปรากฏบน <strong>หน้าจอหลัก</strong> เหมือนแอปทั่วไป</li>
                     </ol>
                   </div>
                 )}
