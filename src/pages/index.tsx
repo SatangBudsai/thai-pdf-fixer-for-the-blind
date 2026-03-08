@@ -435,7 +435,19 @@ export default function Home() {
         )}
 
         {/* ===== Install App Section ===== */}
-        {!isInstalled && (
+        {isInstalled ? (
+          <section aria-labelledby='installed-heading' className='mt-16 border-t-4 border-stone-300 pt-10'>
+            <div className='flex items-center gap-4 border-4 border-green-700 bg-green-50 p-6 shadow-[6px_6px_0px_0px_rgba(21,128,61,1)]'>
+              <Icon icon='mdi:check-circle' className='text-4xl text-green-700' />
+              <div>
+                <h2 id='installed-heading' className='text-2xl font-bold text-green-900'>
+                  ติดตั้งแอปแล้ว
+                </h2>
+                <p className='mt-1 text-lg text-green-800'>คุณสามารถเปิดแอปจากหน้าจอหลักหรือเดสก์ท็อปได้เลย</p>
+              </div>
+            </div>
+          </section>
+        ) : (
           <section aria-labelledby='install-heading' className='mt-16 border-t-4 border-stone-300 pt-10'>
             <h2 id='install-heading' className='mb-4 text-2xl font-bold text-stone-900'>
               <Icon icon='mdi:download' className='mr-2 inline-block align-middle text-3xl' />
@@ -445,16 +457,9 @@ export default function Home() {
 
             {/* Windows / Android - always show install button */}
             {(deviceType === 'windows' || deviceType === 'android') && (
-              <button
-                onClick={handleInstallClick}
-                disabled={!deferredPrompt}
-                className={`${btnPrimary} w-full`}>
+              <button onClick={handleInstallClick} disabled={!deferredPrompt} className={`${btnPrimary} w-full`}>
                 <Icon icon='mdi:cellphone-arrow-down' className='mr-2 inline-block align-middle text-2xl' />
-                {deferredPrompt
-                  ? deviceType === 'windows'
-                    ? 'ติดตั้งแอปบน Windows'
-                    : 'ติดตั้งแอปบน Android'
-                  : 'กำลังเตรียมการติดตั้ง...'}
+                {deferredPrompt ? (deviceType === 'windows' ? 'ติดตั้งแอปบน Windows' : 'ติดตั้งแอปบน Android') : 'กำลังเตรียมการติดตั้ง...'}
               </button>
             )}
 

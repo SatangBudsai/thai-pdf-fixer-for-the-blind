@@ -6,7 +6,9 @@
       "Bash(npx tsc --noEmit)",
       "Bash(node -e \":*)",
       "Bash(npm run build)",
-      "Bash(npx tsx -e \":*)"
+      "Bash(npx tsx -e \":*)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
