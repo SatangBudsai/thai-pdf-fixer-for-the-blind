@@ -20,11 +20,37 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
+import re
 import fitz  # PyMuPDF
 import pdfplumber
 from pythainlp.util import normalize as thai_normalize
 from docx import Document
 from docx.shared import Pt, Inches
+
+
+# ════════════════════════════════════════════════════════════════════
+# Thai text fixers
+# ════════════════════════════════════════════════════════════════════
+
+def fix_sara_am(text: str) -> str:
+    """
+    Fix decomposed sara am (ำ) that PDFs often break into:
+      - consonant + space(s) + sara aa (า)  →  consonant + sara am (ำ)
+      - nikhahit (◌ํ) + sara aa (า)          →  sara am (ำ)
+    Thai consonants: U+0E01–U+0E2E
+    """
+    # Fix: nikhahit (U+0E4D) + sara aa (U+0E32) → sara am (U+0E33)
+    text = text.replace('\u0E4D\u0E32', '\u0E33')
+    # Fix: consonant + whitespace + sara aa → consonant + sara am
+    text = re.sub(r'([\u0E01-\u0E2E])\s+\u0E32', '\\1\u0E33', text)
+    return text
+
+
+def normalize_thai(text: str) -> str:
+    """Apply all Thai text normalization steps."""
+    text = fix_sara_am(text)
+    text = thai_normalize(text)
+    return text
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -104,8 +130,8 @@ def extract_page_content(plumber_page, fitz_page):
         if in_table:
             continue
 
-        # Apply PyThaiNLP normalization to fix Thai vowel/tone mark issues
-        normalized = thai_normalize(text)
+        # Apply Thai text normalization (fix ำ decomposition + PyThaiNLP)
+        normalized = normalize_thai(text)
         content_items.append({"type": "text", "content": normalized, "y": by0})
 
     # ── Step 3: Extract table data ─────────────────────────────────
@@ -120,7 +146,7 @@ def extract_page_content(plumber_page, fitz_page):
             normalized_row = []
             for cell in row:
                 if cell:
-                    normalized_row.append(thai_normalize(cell))
+                    normalized_row.append(normalize_thai(cell))
                 else:
                     normalized_row.append("")
             normalized_table.append(normalized_row)
@@ -138,19 +164,39 @@ def extract_page_content(plumber_page, fitz_page):
         xref = img_info[0]
         try:
             base_image = fitz_page.parent.extract_image(xref)
-            if base_image and base_image["image"]:
-                # Try to determine the Y position of the image on the page
-                img_rects = fitz_page.get_image_rects(xref)
-                y_pos = img_rects[0].y0 if img_rects else 0.0
+            if not base_image or not base_image.get("image"):
+                continue
 
-                content_items.append({
-                    "type": "image",
-                    "data": base_image["image"],
-                    "ext": base_image["ext"],
-                    "y": y_pos
-                })
+            img_bytes = base_image["image"]
+            img_ext = base_image.get("ext", "png")
+
+            # Skip very small images (likely icons/artifacts, < 2KB)
+            if len(img_bytes) < 2048:
+                continue
+
+            # If the image format is unsupported by python-docx, convert via PIL
+            if img_ext not in ("png", "jpg", "jpeg", "gif", "bmp", "tiff"):
+                try:
+                    from PIL import Image as PILImage
+                    pil_img = PILImage.open(io.BytesIO(img_bytes))
+                    buf = io.BytesIO()
+                    pil_img.save(buf, format="PNG")
+                    img_bytes = buf.getvalue()
+                    img_ext = "png"
+                except Exception:
+                    continue
+
+            # Determine the Y position of the image on the page
+            img_rects = fitz_page.get_image_rects(xref)
+            y_pos = img_rects[0].y0 if img_rects else 0.0
+
+            content_items.append({
+                "type": "image",
+                "data": img_bytes,
+                "ext": img_ext,
+                "y": y_pos
+            })
         except Exception:
-            # Some images may fail to extract (e.g., inline masks); skip them
             continue
 
     # Sort all items by vertical position so they appear in reading order

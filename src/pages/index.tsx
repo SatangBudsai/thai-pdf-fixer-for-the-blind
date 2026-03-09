@@ -356,13 +356,22 @@ export default function Home() {
           {phase === 'preview' && (
             <section className='w-full max-w-md space-y-5' aria-label='ผลลัพธ์'>
               {/* File info */}
-              <div className='rounded-xl border-4 border-stone-900 bg-gradient-to-r from-sky-100 to-blue-50 p-5 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
-                <div className='mb-2 flex items-center justify-center gap-2'>
-                  <Icon icon='mdi:check-circle' className='text-2xl text-sky-600' aria-hidden='true' />
-                  <p className='text-xl font-bold text-sky-800'>อ่านไฟล์สำเร็จ</p>
+              <div className='overflow-hidden rounded-xl border-4 border-stone-900 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='bg-gradient-to-r from-emerald-500 to-teal-400 px-6 py-5 text-center'>
+                  <div className='mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm'>
+                    <Icon icon='mdi:check-bold' className='text-3xl text-white' aria-hidden='true' />
+                  </div>
+                  <p className='text-2xl font-black text-white'>อ่านไฟล์สำเร็จ!</p>
                 </div>
-                <p className='break-all text-center text-base text-stone-500'>{fileName}</p>
-                <p className='text-center text-base text-stone-400'>{progress.total} หน้า</p>
+                <div className='bg-gradient-to-b from-emerald-50 to-white px-6 py-4'>
+                  <div className='flex items-center justify-center gap-3'>
+                    <div className='flex items-center gap-2 rounded-full bg-emerald-100 px-4 py-1.5'>
+                      <Icon icon='mdi:file-document-outline' className='text-lg text-emerald-600' aria-hidden='true' />
+                      <span className='text-base font-semibold text-emerald-700'>{progress.total} หน้า</span>
+                    </div>
+                  </div>
+                  <p className='mt-2 break-all text-center text-sm text-stone-400'>{fileName}</p>
+                </div>
               </div>
 
               {/* Text preview */}
