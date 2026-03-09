@@ -34,7 +34,13 @@
       "nsis": {
         "installMode": "both",
         "displayLanguageSelector": false,
-        "languages": ["Thai", "English"]
+        "languages": ["Thai", "English"],
+        "headerImage": "icons/installer/nsis-header.bmp",
+        "sidebarImage": "icons/installer/nsis-sidebar.bmp"
+      },
+      "wix": {
+        "bannerPath": "icons/installer/msi-banner.bmp",
+        "dialogImagePath": "icons/installer/msi-dialog.bmp"
       }
     }
   },
