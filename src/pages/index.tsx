@@ -574,7 +574,7 @@ export default function Home() {
             </section>
           )}
 
-          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.1.4 — สำหรับผู้พิการทางสายตา</p>
+          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.1.5 — สำหรับผู้พิการทางสายตา</p>
         </main>
       </div>
     </>
