@@ -49,4 +49,5 @@ python/__pycache__/
 python/dist/
 python/build/
 python/*.spec
+!python/converter.spec
 *.pyc
