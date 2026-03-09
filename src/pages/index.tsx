@@ -3,7 +3,8 @@ import { Icon } from '@iconify/react'
 import Head from 'next/head'
 import { speak, stop as stopSpeech } from '@/lib/speech'
 
-type AppPhase = 'idle' | 'processing' | 'done' | 'error'
+// Phases: idle → extracting → preview → saving → saved → error
+type AppPhase = 'idle' | 'extracting' | 'preview' | 'saving' | 'saved' | 'error'
 
 interface Progress {
   page: number
@@ -45,17 +46,16 @@ export default function Home() {
   const [speaking, setSpeaking] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [inputPath, setInputPath] = useState('')
+  const [fileName, setFileName] = useState('')
   const [outputPath, setOutputPath] = useState('')
   const [previewText, setPreviewText] = useState('')
-  const [loadingPreview, setLoadingPreview] = useState(false)
   const [tauriReady, setTauriReady] = useState(false)
 
-  // Tauri modules stored in refs so they persist across re-renders
   const tauriDialogRef = useRef<typeof import('@tauri-apps/plugin-dialog') | null>(null)
   const tauriShellRef = useRef<typeof import('@tauri-apps/plugin-shell') | null>(null)
   const processingAudioRef = useRef<HTMLAudioElement | null>(null)
 
-  // Load Tauri APIs on mount (dynamic import avoids SSR errors)
+  // Load Tauri APIs on mount
   useEffect(() => {
     if (globalThis.window === undefined) return
     Promise.all([
@@ -67,17 +67,15 @@ export default function Home() {
         tauriShellRef.current = shell
         setTauriReady(true)
       })
-      .catch((err) => {
-        console.error('Failed to load Tauri APIs:', err)
-      })
+      .catch((err) => console.error('Failed to load Tauri APIs:', err))
   }, [])
 
   const announce = useCallback((msg: string) => {
     setStatusMessage(msg)
   }, [])
 
-  // ── Select PDF and convert ──────────────────────────────────
-  const handleSelectAndConvert = useCallback(async () => {
+  // ── Step 1: Select PDF → Extract text (preview mode) ────────
+  const handleSelectFile = useCallback(async () => {
     const dialog = tauriDialogRef.current
     const shell = tauriShellRef.current
     if (!dialog || !shell) return
@@ -90,29 +88,21 @@ export default function Home() {
       if (!selected) return
 
       const pdfPath = selected as string
+      const name = pdfPath.split(/[/\\]/).pop() || pdfPath
       setInputPath(pdfPath)
-      const fileName = pdfPath.split(/[/\\]/).pop() || pdfPath
-
-      const suggestedOutput = pdfPath.replace(/\.pdf$/i, '_fixed.docx')
-      const savePath = await dialog.save({
-        defaultPath: suggestedOutput,
-        filters: [{ name: 'Word Document', extensions: ['docx'] }],
-      })
-      if (!savePath) return
-      setOutputPath(savePath)
-
-      // Start conversion
-      setPhase('processing')
+      setFileName(name)
       setPreviewText('')
-      setProgress({ page: 0, total: 0, message: 'กำลังเริ่มต้น...' })
-      announce(`กำลังแปลงไฟล์ ${fileName}`)
+      setOutputPath('')
+
+      // Start extracting text (preview mode — no DOCX yet)
+      setPhase('extracting')
+      setProgress({ page: 0, total: 0, message: 'กำลังอ่านไฟล์...' })
+      announce(`กำลังอ่านไฟล์ ${name}`)
       processingAudioRef.current = playSFX('processing')
 
-      const command = shell.Command.sidecar('binaries/converter', [
-        'convert',
-        pdfPath,
-        savePath,
-      ])
+      let collectedText = ''
+
+      const command = shell.Command.sidecar('binaries/converter', ['preview', pdfPath])
 
       command.stdout.on('data', (line: string) => {
         try {
@@ -120,20 +110,23 @@ export default function Home() {
           if (msg.type === 'progress') {
             setProgress({ page: msg.page, total: msg.total, message: msg.message })
             announce(msg.message)
-          } else if (msg.type === 'done') {
+          } else if (msg.type === 'text') {
+            collectedText += msg.content + '\n'
+          } else if (msg.type === 'preview_done') {
             processingAudioRef.current?.pause()
-            setPhase('done')
+            setPreviewText(collectedText.trim())
+            setProgress((prev) => ({ ...prev, message: '' }))
+            setPhase('preview')
             playSFX('success')
-            announce(`แปลงสำเร็จ ${msg.pages} หน้า`)
+            announce(`อ่านเสร็จแล้ว ${msg.pages} หน้า`)
           } else if (msg.type === 'error') {
             processingAudioRef.current?.pause()
             setPhase('error')
             setErrorMessage(msg.message)
             playSFX('error')
-            announce(`เกิดข้อผิดพลาด: ${msg.message}`)
           }
         } catch {
-          // Non-JSON line, ignore
+          // ignore non-JSON
         }
       })
 
@@ -151,7 +144,8 @@ export default function Home() {
       command.on('close', (data: { code: number | null }) => {
         if (data.code !== null && data.code !== 0) {
           setPhase((prev) => {
-            if (prev === 'processing') {
+            if (prev === 'extracting') {
+              processingAudioRef.current?.pause()
               playSFX('error')
               setErrorMessage(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
               return 'error'
@@ -170,37 +164,85 @@ export default function Home() {
     }
   }, [announce])
 
-  // ── Load text preview from sidecar ──────────────────────────
-  const handleLoadPreview = useCallback(async () => {
+  // ── Step 2: Save as Word (.docx) ────────────────────────────
+  const handleSaveAsWord = useCallback(async () => {
+    const dialog = tauriDialogRef.current
     const shell = tauriShellRef.current
-    if (!shell || !inputPath) return
+    if (!dialog || !shell || !inputPath) return
 
-    setLoadingPreview(true)
-    announce('กำลังอ่านข้อความจาก PDF...')
-    let collectedText = ''
+    try {
+      const suggestedOutput = inputPath.replace(/\.pdf$/i, '_fixed.docx')
+      const savePath = await dialog.save({
+        defaultPath: suggestedOutput,
+        filters: [{ name: 'Word Document', extensions: ['docx'] }],
+      })
+      if (!savePath) return
 
-    const command = shell.Command.sidecar('binaries/converter', ['preview', inputPath])
+      setOutputPath(savePath)
+      setPhase('saving')
+      setProgress({ page: 0, total: 0, message: 'กำลังสร้างไฟล์ Word...' })
+      announce('กำลังบันทึกเป็นไฟล์ Word')
+      processingAudioRef.current = playSFX('processing')
 
-    command.stdout.on('data', (line: string) => {
-      try {
-        const msg = JSON.parse(line)
-        if (msg.type === 'text') {
-          collectedText += msg.content + '\n'
-        } else if (msg.type === 'preview_done') {
-          setPreviewText(collectedText.trim())
-          setLoadingPreview(false)
-          announce('โหลดข้อความเสร็จแล้ว')
+      const command = shell.Command.sidecar('binaries/converter', [
+        'convert',
+        inputPath,
+        savePath,
+      ])
+
+      command.stdout.on('data', (line: string) => {
+        try {
+          const msg = JSON.parse(line)
+          if (msg.type === 'progress') {
+            setProgress({ page: msg.page, total: msg.total, message: msg.message })
+          } else if (msg.type === 'done') {
+            processingAudioRef.current?.pause()
+            setPhase('saved')
+            playSFX('success')
+            announce(`บันทึกสำเร็จ ${msg.pages} หน้า`)
+          } else if (msg.type === 'error') {
+            processingAudioRef.current?.pause()
+            setPhase('error')
+            setErrorMessage(msg.message)
+            playSFX('error')
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
-      }
-    })
+      })
 
-    command.on('error', () => {
-      setLoadingPreview(false)
-    })
+      command.stderr.on('data', (line: string) => {
+        console.error('Sidecar stderr:', line)
+      })
 
-    await command.spawn()
+      command.on('error', (err: string) => {
+        processingAudioRef.current?.pause()
+        setPhase('error')
+        setErrorMessage(`ไม่สามารถบันทึกได้: ${err}`)
+        playSFX('error')
+      })
+
+      command.on('close', (data: { code: number | null }) => {
+        if (data.code !== null && data.code !== 0) {
+          setPhase((prev) => {
+            if (prev === 'saving') {
+              processingAudioRef.current?.pause()
+              playSFX('error')
+              setErrorMessage(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
+              return 'error'
+            }
+            return prev
+          })
+        }
+      })
+
+      await command.spawn()
+    } catch (err: any) {
+      processingAudioRef.current?.pause()
+      setPhase('error')
+      setErrorMessage(err?.message || 'ไม่สามารถบันทึกไฟล์ได้')
+      playSFX('error')
+    }
   }, [inputPath, announce])
 
   // ── TTS ─────────────────────────────────────────────────────
@@ -223,10 +265,10 @@ export default function Home() {
     setProgress({ page: 0, total: 0, message: '' })
     setErrorMessage('')
     setInputPath('')
+    setFileName('')
     setOutputPath('')
     setPreviewText('')
     setStatusMessage('')
-    setLoadingPreview(false)
   }, [])
 
   const progressPercent =
@@ -269,14 +311,14 @@ export default function Home() {
             </p>
           </div>
 
-          {/* ── IDLE ──────────────────────────────────────────── */}
+          {/* ── IDLE: Select file ─────────────────────────────── */}
           {phase === 'idle' && (
             <section className="w-full max-w-md space-y-6" aria-label="เลือกไฟล์">
               <button
-                onClick={handleSelectAndConvert}
+                onClick={handleSelectFile}
                 disabled={!tauriReady}
                 className={btnPrimary}
-                aria-label="เลือกไฟล์ PDF เพื่อแปลงเป็น Word"
+                aria-label="เลือกไฟล์ PDF เพื่อแปลง"
               >
                 <Icon icon="mdi:file-pdf-box" className="text-3xl" aria-hidden="true" />
                 {tauriReady ? 'เลือกไฟล์ PDF' : 'กำลังโหลด...'}
@@ -289,17 +331,17 @@ export default function Home() {
                 </div>
                 <ol className="space-y-1 text-left text-base text-stone-500">
                   <li>1. กดปุ่มด้านบนเพื่อเลือกไฟล์ PDF</li>
-                  <li>2. เลือกตำแหน่งบันทึกไฟล์ Word</li>
-                  <li>3. รอระบบแปลงไฟล์ให้เสร็จ</li>
-                  <li>4. ดูตัวอย่างข้อความ หรือฟังด้วยเสียง</li>
+                  <li>2. รอระบบอ่านและแกะข้อความ</li>
+                  <li>3. ดูตัวอย่างข้อความ หรือฟังด้วยเสียง</li>
+                  <li>4. กดบันทึกเป็นไฟล์ Word เมื่อพร้อม</li>
                 </ol>
               </div>
             </section>
           )}
 
-          {/* ── PROCESSING ────────────────────────────────────── */}
-          {phase === 'processing' && (
-            <section className="w-full max-w-md" aria-label="กำลังประมวลผล" role="status">
+          {/* ── EXTRACTING: Reading PDF ──────────────────────── */}
+          {phase === 'extracting' && (
+            <section className="w-full max-w-md" aria-label="กำลังอ่านไฟล์" role="status">
               <div className="rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
                 <div className="mb-6 flex justify-center">
                   <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-100">
@@ -311,7 +353,10 @@ export default function Home() {
                   </div>
                 </div>
 
-                <p className="mb-4 text-center text-2xl font-bold">กำลังแปลงไฟล์...</p>
+                <p className="mb-1 text-center text-2xl font-bold">กำลังอ่านไฟล์...</p>
+                {fileName && (
+                  <p className="mb-4 break-all text-center text-base text-stone-400">{fileName}</p>
+                )}
 
                 {progress.total > 0 && (
                   <div className="mb-2">
@@ -337,69 +382,34 @@ export default function Home() {
             </section>
           )}
 
-          {/* ── DONE ──────────────────────────────────────────── */}
-          {phase === 'done' && (
-            <section className="w-full max-w-md space-y-5" aria-label="แปลงสำเร็จ">
-              {/* Success banner */}
-              <div className="rounded-xl border-4 border-stone-900 bg-gradient-to-r from-emerald-100 to-green-50 p-6 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
-                <div className="mb-3 flex justify-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-200">
-                    <Icon
-                      icon="mdi:check-bold"
-                      className="text-3xl text-emerald-700"
-                      aria-hidden="true"
-                    />
-                  </div>
+          {/* ── PREVIEW: Show extracted text ──────────────────── */}
+          {phase === 'preview' && (
+            <section className="w-full max-w-md space-y-5" aria-label="ผลลัพธ์">
+              {/* File info */}
+              <div className="rounded-xl border-4 border-stone-900 bg-gradient-to-r from-sky-100 to-blue-50 p-5 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
+                <div className="mb-2 flex items-center justify-center gap-2">
+                  <Icon icon="mdi:check-circle" className="text-2xl text-sky-600" aria-hidden="true" />
+                  <p className="text-xl font-bold text-sky-800">อ่านไฟล์สำเร็จ</p>
                 </div>
-                <p className="text-center text-2xl font-bold text-emerald-800">แปลงสำเร็จ!</p>
-                <p className="mt-1 text-center text-lg text-emerald-600">
-                  {progress.total} หน้า
-                </p>
-                {outputPath && (
-                  <p className="mt-2 break-all text-center text-sm text-stone-400">
-                    {outputPath}
-                  </p>
-                )}
+                <p className="break-all text-center text-base text-stone-500">{fileName}</p>
+                <p className="text-center text-base text-stone-400">{progress.total} หน้า</p>
               </div>
 
-              {/* Text preview area */}
-              {!previewText && !loadingPreview && (
-                <button
-                  onClick={handleLoadPreview}
-                  className={btnSecondary}
-                  aria-label="ดูตัวอย่างข้อความที่แกะได้"
-                >
-                  <Icon icon="mdi:text-box-search" className="text-2xl" aria-hidden="true" />
-                  ดูตัวอย่างข้อความ
-                </button>
-              )}
-
-              {loadingPreview && (
-                <div className="flex items-center justify-center gap-3 rounded-xl border-2 border-stone-200 bg-white p-4 text-stone-500">
-                  <Icon
-                    icon="mdi:loading"
-                    className="animate-spin text-2xl"
-                    aria-hidden="true"
-                  />
-                  กำลังอ่านข้อความ...
-                </div>
-              )}
-
+              {/* Text preview */}
               {previewText && (
                 <div className="rounded-xl border-2 border-stone-200 bg-white">
-                  <div className="flex items-center justify-between border-b border-stone-200 px-4 py-2">
+                  <div className="border-b border-stone-200 px-4 py-2">
                     <span className="text-base font-semibold text-stone-500">
-                      ตัวอย่างข้อความ
+                      ตัวอย่างข้อความที่แกะได้
                     </span>
                   </div>
                   <div
-                    className="max-h-64 overflow-y-auto p-4 text-base leading-relaxed text-stone-700"
-                    tabIndex={0}
+                    className="max-h-60 overflow-y-auto p-4 text-base leading-relaxed text-stone-700"
                     role="region"
                     aria-label="ข้อความที่แกะจาก PDF"
                   >
-                    {previewText.split('\n').map((line, i) => (
-                      <p key={i} className={line.trim() ? '' : 'h-4'}>
+                    {previewText.split('\n').map((line, idx) => (
+                      <p key={`line-${idx}`} className={line.trim() ? '' : 'h-4'}>
                         {line}
                       </p>
                     ))}
@@ -407,11 +417,26 @@ export default function Home() {
                 </div>
               )}
 
-              {/* TTS button (shown after preview loaded) */}
+              {!previewText && (
+                <div className="rounded-xl border-2 border-stone-200 bg-white p-4 text-center text-stone-400">
+                  ไม่พบข้อความในไฟล์ PDF นี้
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <button
+                onClick={handleSaveAsWord}
+                className={btnSuccess}
+                aria-label="บันทึกเป็นไฟล์ Word"
+              >
+                <Icon icon="mdi:content-save" className="text-2xl" aria-hidden="true" />
+                บันทึกเป็น Word
+              </button>
+
               {previewText && (
                 <button
                   onClick={handleSpeak}
-                  className={btnSuccess}
+                  className={btnSecondary}
                   aria-label={speaking ? 'หยุดอ่าน' : 'ฟังข้อความด้วยเสียง'}
                 >
                   <Icon
@@ -423,7 +448,78 @@ export default function Home() {
                 </button>
               )}
 
-              {/* Convert another file */}
+              <button onClick={handleReset} className={btnSecondary} aria-label="เลือกไฟล์ใหม่">
+                <Icon icon="mdi:arrow-left" className="text-2xl" aria-hidden="true" />
+                เลือกไฟล์ใหม่
+              </button>
+            </section>
+          )}
+
+          {/* ── SAVING: Converting to DOCX ───────────────────── */}
+          {phase === 'saving' && (
+            <section className="w-full max-w-md" aria-label="กำลังบันทึก" role="status">
+              <div className="rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
+                <div className="mb-6 flex justify-center">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+                    <Icon
+                      icon="mdi:loading"
+                      className="animate-spin text-5xl text-emerald-500"
+                      aria-hidden="true"
+                    />
+                  </div>
+                </div>
+                <p className="mb-4 text-center text-2xl font-bold">กำลังบันทึกเป็น Word...</p>
+
+                {progress.total > 0 && (
+                  <div className="mb-2">
+                    <div
+                      className="h-5 overflow-hidden rounded-full border-2 border-stone-300 bg-stone-100"
+                      role="progressbar"
+                      aria-valuenow={progressPercent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`ความคืบหน้า ${progressPercent} เปอร์เซ็นต์`}
+                    >
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-300 transition-all duration-300"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-center text-base text-stone-500">
+                      {progress.message} ({progressPercent}%)
+                    </p>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ── SAVED: Success ────────────────────────────────── */}
+          {phase === 'saved' && (
+            <section className="w-full max-w-md space-y-5" aria-label="บันทึกสำเร็จ">
+              <div className="rounded-xl border-4 border-stone-900 bg-gradient-to-r from-emerald-100 to-green-50 p-6 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
+                <div className="mb-3 flex justify-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-200">
+                    <Icon
+                      icon="mdi:check-bold"
+                      className="text-3xl text-emerald-700"
+                      aria-hidden="true"
+                    />
+                  </div>
+                </div>
+                <p className="text-center text-2xl font-bold text-emerald-800">
+                  บันทึกสำเร็จ!
+                </p>
+                <p className="mt-1 text-center text-lg text-emerald-600">
+                  {progress.total} หน้า
+                </p>
+                {outputPath && (
+                  <p className="mt-2 break-all text-center text-sm text-stone-400">
+                    {outputPath}
+                  </p>
+                )}
+              </div>
+
               <button onClick={handleReset} className={btnPrimary} aria-label="แปลงไฟล์ใหม่">
                 <Icon icon="mdi:file-plus" className="text-2xl" aria-hidden="true" />
                 แปลงไฟล์ใหม่
@@ -451,7 +547,6 @@ export default function Home() {
             </section>
           )}
 
-          {/* Footer */}
           <p className="mt-12 text-center text-sm text-stone-400">
             Thai PDF Fixer v2.0 — สำหรับผู้พิการทางสายตา
           </p>
