@@ -38,3 +38,14 @@ next-env.d.ts
 # Ignore artifacts:
 build
 coverage
+
+# Tauri
+/src-tauri/target/
+/src-tauri/gen/
+
+# Python
+python/__pycache__/
+python/dist/
+python/build/
+python/*.spec
+*.pyc
