@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Icon } from '@iconify/react'
 import Head from 'next/head'
-import { speak, speakAsync, stop as stopSpeech } from '@/lib/speech'
+import { speak, speakAsync, stop as stopSpeech, waitForVoices } from '@/lib/speech'
 
 // Phases: idle → extracting → preview → saving → saved → error
 type AppPhase = 'idle' | 'extracting' | 'preview' | 'saving' | 'saved' | 'error'
@@ -43,6 +43,7 @@ export default function Home() {
   const [phase, setPhase] = useState<AppPhase>('idle')
   const [progress, setProgress] = useState<Progress>({ page: 0, total: 0, message: '' })
   const [errorMessage, setErrorMessage] = useState('')
+  const [isFileLockedError, setIsFileLockedError] = useState(false)
   const [speaking, setSpeaking] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [inputPath, setInputPath] = useState('')
@@ -64,7 +65,7 @@ export default function Home() {
   // Load Tauri APIs on mount
   useEffect(() => {
     if (globalThis.window === undefined) return
-    Promise.all([import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-shell')])
+    Promise.all([import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-shell'), waitForVoices()])
       .then(([dialog, shell]) => {
         tauriDialogRef.current = dialog
         tauriShellRef.current = shell
@@ -76,27 +77,34 @@ export default function Home() {
   // Auto-focus and TTS announcements when phase changes
   useEffect(() => {
     const timer = setTimeout(async () => {
-      stopSpeech()
+      // Don't call stopSpeech() — let speakAsync() naturally replace previous speech
       switch (phase) {
         case 'idle':
           selectBtnRef.current?.focus()
           break
         case 'preview':
           saveBtnRef.current?.focus()
+          playSFX('success')
           await speakAsync(`อ่านไฟล์สำเร็จ พบข้อความทั้งหมด ${progress.total} หน้า คุณสามารถกดปุ่มบันทึกเป็น Word หรือกดปุ่มฟังข้อความด้วยเสียงได้`)
           break
         case 'saved':
           newFileBtnRef.current?.focus()
+          playSFX('success')
           await speakAsync('บันทึกไฟล์ Word สำเร็จแล้ว คุณสามารถกดปุ่มแปลงไฟล์ใหม่เพื่อเลือกไฟล์อื่นได้')
           break
         case 'error':
           retryBtnRef.current?.focus()
-          await speakAsync(`เกิดข้อผิดพลาด ${errorMessage} กดปุ่มลองใหม่เพื่อเริ่มต้นใหม่`)
+          playSFX('error')
+          if (isFileLockedError) {
+            await speakAsync('ไม่สามารถบันทึกได้เพราะไฟล์ถูกเปิดอยู่ กรุณาปิดไฟล์ Word แล้วกดปุ่มบันทึกอีกครั้ง')
+          } else {
+            await speakAsync(`เกิดข้อผิดพลาด ${errorMessage} กดปุ่มลองใหม่เพื่อเริ่มต้นใหม่`)
+          }
           break
       }
     }, 500)
     return () => clearTimeout(timer)
-  }, [phase, errorMessage, progress.total])
+  }, [phase, errorMessage, progress.total, isFileLockedError])
 
   // Announce to screen reader on mount
   useEffect(() => {
@@ -107,6 +115,14 @@ export default function Home() {
 
   const announce = useCallback((msg: string) => {
     setStatusMessage(msg)
+  }, [])
+
+  // Helper: set error state with file-locked detection
+  const setError = useCallback((message: string, code?: string) => {
+    const fileLocked = code === 'file_locked' || message.includes('ปิดไฟล์') || message.includes('Permission denied')
+    setIsFileLockedError(fileLocked)
+    setErrorMessage(message)
+    setPhase('error')
   }, [])
 
   // ── Step 1: Select PDF → Extract text (preview mode) ────────
@@ -122,21 +138,21 @@ export default function Home() {
       })
       if (!selected) return
 
-      const pdfPath = selected as string
+      const pdfPath = selected
       const name = pdfPath.split(/[/\\]/).pop() || pdfPath
       setInputPath(pdfPath)
       setFileName(name)
       setPreviewText('')
       setOutputPath('')
-
-      // Play upload sound + TTS announcement, wait for speech to finish
-      playSFX('upload')
-      stopSpeech()
+      setIsFileLockedError(false)
 
       // Start extracting text (preview mode — no DOCX yet)
       setPhase('extracting')
       setProgress({ page: 0, total: 0, message: 'กำลังอ่านไฟล์...' })
       announce(`กำลังอ่านไฟล์ ${name}`)
+
+      // Play upload sound + TTS announcement, wait for speech to finish
+      playSFX('upload')
       await speakAsync(`เลือกไฟล์แล้ว ${name} กำลังอ่านและแกะข้อความจากไฟล์ PDF กรุณารอสักครู่`)
 
       // Start processing sound after speech finishes
@@ -159,13 +175,10 @@ export default function Home() {
             setPreviewText(collectedText.trim())
             setProgress(prev => ({ ...prev, message: '' }))
             setPhase('preview')
-            playSFX('success')
             announce(`อ่านเสร็จแล้ว ${msg.pages} หน้า`)
           } else if (msg.type === 'error') {
             processingAudioRef.current?.pause()
-            setPhase('error')
-            setErrorMessage(msg.message)
-            playSFX('error')
+            setError(msg.message, msg.code)
           }
         } catch {
           // ignore non-JSON
@@ -178,9 +191,7 @@ export default function Home() {
 
       command.on('error', (err: string) => {
         processingAudioRef.current?.pause()
-        setPhase('error')
-        setErrorMessage(`ไม่สามารถเรียกใช้ตัวแปลงได้: ${err}`)
-        playSFX('error')
+        setError(`ไม่สามารถเรียกใช้ตัวแปลงได้: ${err}`)
       })
 
       command.on('close', (data: { code: number | null }) => {
@@ -188,8 +199,7 @@ export default function Home() {
           setPhase(prev => {
             if (prev === 'extracting') {
               processingAudioRef.current?.pause()
-              playSFX('error')
-              setErrorMessage(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
+              setError(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
               return 'error'
             }
             return prev
@@ -200,12 +210,10 @@ export default function Home() {
       await command.spawn()
     } catch (err: any) {
       processingAudioRef.current?.pause()
-      setPhase('error')
       const msg = err?.message || err?.toString?.() || JSON.stringify(err) || 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'
-      setErrorMessage(msg)
-      playSFX('error')
+      setError(msg)
     }
-  }, [announce])
+  }, [announce, setError])
 
   // ── Step 2: Save as Word (.docx) ────────────────────────────
   const handleSaveAsWord = useCallback(async () => {
@@ -223,9 +231,10 @@ export default function Home() {
 
       setOutputPath(savePath)
       setPhase('saving')
+      setIsFileLockedError(false)
       setProgress({ page: 0, total: 0, message: 'กำลังสร้างไฟล์ Word...' })
       announce('กำลังบันทึกเป็นไฟล์ Word')
-      stopSpeech()
+
       await speakAsync('กำลังแปลงไฟล์เป็น Word พร้อมข้อความ ตาราง และรูปภาพ กรุณารอสักครู่')
       processingAudioRef.current = playSFX('processing')
 
@@ -239,13 +248,10 @@ export default function Home() {
           } else if (msg.type === 'done') {
             processingAudioRef.current?.pause()
             setPhase('saved')
-            playSFX('success')
             announce(`บันทึกสำเร็จ ${msg.pages} หน้า`)
           } else if (msg.type === 'error') {
             processingAudioRef.current?.pause()
-            setPhase('error')
-            setErrorMessage(msg.message)
-            playSFX('error')
+            setError(msg.message, msg.code)
           }
         } catch {
           // ignore
@@ -258,9 +264,7 @@ export default function Home() {
 
       command.on('error', (err: string) => {
         processingAudioRef.current?.pause()
-        setPhase('error')
-        setErrorMessage(`ไม่สามารถบันทึกได้: ${err}`)
-        playSFX('error')
+        setError(`ไม่สามารถบันทึกได้: ${err}`)
       })
 
       command.on('close', (data: { code: number | null }) => {
@@ -268,8 +272,7 @@ export default function Home() {
           setPhase(prev => {
             if (prev === 'saving') {
               processingAudioRef.current?.pause()
-              playSFX('error')
-              setErrorMessage(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
+              setError(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
               return 'error'
             }
             return prev
@@ -280,11 +283,9 @@ export default function Home() {
       await command.spawn()
     } catch (err: any) {
       processingAudioRef.current?.pause()
-      setPhase('error')
-      setErrorMessage(err?.message || 'ไม่สามารถบันทึกไฟล์ได้')
-      playSFX('error')
+      setError(err?.message || 'ไม่สามารถบันทึกไฟล์ได้')
     }
-  }, [inputPath, announce])
+  }, [inputPath, announce, setError])
 
   // ── TTS ─────────────────────────────────────────────────────
   const handleSpeak = useCallback(() => {
@@ -305,6 +306,7 @@ export default function Home() {
     setPhase('idle')
     setProgress({ page: 0, total: 0, message: '' })
     setErrorMessage('')
+    setIsFileLockedError(false)
     setInputPath('')
     setFileName('')
     setOutputPath('')
@@ -343,7 +345,12 @@ export default function Home() {
           {/* ── IDLE: Select file ─────────────────────────────── */}
           {phase === 'idle' && (
             <section className='w-full max-w-md space-y-6' aria-label='เลือกไฟล์'>
-              <button ref={selectBtnRef} onClick={handleSelectFile} disabled={!tauriReady} className={btnPrimary} aria-label='เลือกไฟล์ PDF เพื่อแปลง'>
+              <button
+                ref={selectBtnRef}
+                onClick={handleSelectFile}
+                disabled={!tauriReady}
+                className={btnPrimary}
+                aria-label='เลือกไฟล์ PDF เพื่อแปลง'>
                 <Icon icon='mdi:file-pdf-box' className='text-3xl' aria-hidden='true' />
                 {tauriReady ? 'เลือกไฟล์ PDF' : 'กำลังโหลด...'}
               </button>
@@ -539,10 +546,23 @@ export default function Home() {
                 <p className='mt-3 text-center text-lg text-red-600'>{errorMessage}</p>
               </div>
 
-              <button ref={retryBtnRef} onClick={handleReset} className={btnDanger} aria-label='ลองใหม่'>
-                <Icon icon='mdi:refresh' className='text-2xl' aria-hidden='true' />
-                ลองใหม่
-              </button>
+              {isFileLockedError ? (
+                <>
+                  <button ref={retryBtnRef} onClick={handleSaveAsWord} className={btnSuccess} aria-label='บันทึกอีกครั้ง'>
+                    <Icon icon='mdi:content-save' className='text-2xl' aria-hidden='true' />
+                    บันทึกอีกครั้ง
+                  </button>
+                  <button onClick={handleReset} className={btnSecondary} aria-label='เลือกไฟล์ใหม่'>
+                    <Icon icon='mdi:arrow-left' className='text-2xl' aria-hidden='true' />
+                    เลือกไฟล์ใหม่
+                  </button>
+                </>
+              ) : (
+                <button ref={retryBtnRef} onClick={handleReset} className={btnDanger} aria-label='ลองใหม่'>
+                  <Icon icon='mdi:refresh' className='text-2xl' aria-hidden='true' />
+                  ลองใหม่
+                </button>
+              )}
             </section>
           )}
 

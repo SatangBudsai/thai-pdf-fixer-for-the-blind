@@ -189,15 +189,25 @@ def extract_page_content(plumber_page, fitz_page):
             except Exception:
                 continue
 
-            # Determine the Y position of the image on the page
+            # Determine the position and display size of the image on the page
             img_rects = fitz_page.get_image_rects(xref)
-            y_pos = img_rects[0].y0 if img_rects else 0.0
+            if img_rects:
+                rect = img_rects[0]
+                y_pos = rect.y0
+                width_pts = rect.width
+                height_pts = rect.height
+            else:
+                y_pos = 0.0
+                width_pts = 0
+                height_pts = 0
 
             content_items.append({
                 "type": "image",
                 "data": img_bytes,
                 "ext": img_ext,
-                "y": y_pos
+                "y": y_pos,
+                "width_pts": width_pts,
+                "height_pts": height_pts,
             })
         except Exception:
             continue
@@ -254,7 +264,13 @@ def build_docx(all_pages_content, output_path):
             elif item["type"] == "image":
                 try:
                     image_stream = io.BytesIO(item["data"])
-                    doc.add_picture(image_stream, width=Inches(5))
+                    # Use proportional width from PDF, clamped to 1–6.5 inches
+                    width_pts = item.get("width_pts", 0)
+                    if width_pts > 0:
+                        width_in = max(1.0, min(6.5, width_pts / 72.0))
+                    else:
+                        width_in = 5.0
+                    doc.add_picture(image_stream, width=Inches(width_in))
                 except Exception:
                     # If image insertion fails, add a placeholder
                     doc.add_paragraph("[ไม่สามารถแทรกรูปภาพได้]")
@@ -378,7 +394,7 @@ def main():
             sys.exit(1)
 
     except PermissionError:
-        emit_error("ไม่สามารถบันทึกไฟล์ได้ — กรุณาปิดไฟล์ Word ก่อนแล้วลองใหม่")
+        emit({"type": "error", "code": "file_locked", "message": "ไม่สามารถบันทึกไฟล์ได้ กรุณาปิดไฟล์ Word ก่อนแล้วลองใหม่"})
         sys.exit(1)
     except Exception as e:
         emit_error(f"เกิดข้อผิดพลาด: {str(e)}")
