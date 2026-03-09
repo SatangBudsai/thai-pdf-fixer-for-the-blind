@@ -22,9 +22,8 @@ jobs:
           pip install pyinstaller
 
       - name: Build converter sidecar
-        run: |
-          cd python
-          pyinstaller converter.spec
+        working-directory: python
+        run: pyinstaller converter.spec
 
       - name: Copy sidecar to Tauri binaries
         run: |
