@@ -15,6 +15,11 @@ import json
 import os
 import io
 
+# Force UTF-8 stdout on Windows (default cp1252 can't handle Thai)
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import fitz  # PyMuPDF
 import pdfplumber
 from pythainlp.util import normalize as thai_normalize

@@ -31,7 +31,7 @@ const btn = (bg: string) =>
     'active:shadow-none active:translate-x-[5px] active:translate-y-[5px]',
     'transition-all duration-100',
     'focus:outline-none focus:ring-8 focus:ring-amber-400 focus:ring-offset-4 focus:ring-offset-stone-50',
-    'disabled:opacity-50 disabled:cursor-not-allowed',
+    'disabled:opacity-50 disabled:cursor-not-allowed'
   ].join(' ')
 
 const btnPrimary = btn('bg-gradient-to-r from-amber-400 to-yellow-300 text-stone-900')
@@ -58,16 +58,13 @@ export default function Home() {
   // Load Tauri APIs on mount
   useEffect(() => {
     if (globalThis.window === undefined) return
-    Promise.all([
-      import('@tauri-apps/plugin-dialog'),
-      import('@tauri-apps/plugin-shell'),
-    ])
+    Promise.all([import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-shell')])
       .then(([dialog, shell]) => {
         tauriDialogRef.current = dialog
         tauriShellRef.current = shell
         setTauriReady(true)
       })
-      .catch((err) => console.error('Failed to load Tauri APIs:', err))
+      .catch(err => console.error('Failed to load Tauri APIs:', err))
   }, [])
 
   const announce = useCallback((msg: string) => {
@@ -83,7 +80,7 @@ export default function Home() {
     try {
       const selected = await dialog.open({
         multiple: false,
-        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        filters: [{ name: 'PDF', extensions: ['pdf'] }]
       })
       if (!selected) return
 
@@ -115,7 +112,7 @@ export default function Home() {
           } else if (msg.type === 'preview_done') {
             processingAudioRef.current?.pause()
             setPreviewText(collectedText.trim())
-            setProgress((prev) => ({ ...prev, message: '' }))
+            setProgress(prev => ({ ...prev, message: '' }))
             setPhase('preview')
             playSFX('success')
             announce(`อ่านเสร็จแล้ว ${msg.pages} หน้า`)
@@ -143,7 +140,7 @@ export default function Home() {
 
       command.on('close', (data: { code: number | null }) => {
         if (data.code !== null && data.code !== 0) {
-          setPhase((prev) => {
+          setPhase(prev => {
             if (prev === 'extracting') {
               processingAudioRef.current?.pause()
               playSFX('error')
@@ -159,7 +156,8 @@ export default function Home() {
     } catch (err: any) {
       processingAudioRef.current?.pause()
       setPhase('error')
-      setErrorMessage(err?.message || 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ')
+      const msg = err?.message || err?.toString?.() || JSON.stringify(err) || 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'
+      setErrorMessage(msg)
       playSFX('error')
     }
   }, [announce])
@@ -174,7 +172,7 @@ export default function Home() {
       const suggestedOutput = inputPath.replace(/\.pdf$/i, '_fixed.docx')
       const savePath = await dialog.save({
         defaultPath: suggestedOutput,
-        filters: [{ name: 'Word Document', extensions: ['docx'] }],
+        filters: [{ name: 'Word Document', extensions: ['docx'] }]
       })
       if (!savePath) return
 
@@ -184,11 +182,7 @@ export default function Home() {
       announce('กำลังบันทึกเป็นไฟล์ Word')
       processingAudioRef.current = playSFX('processing')
 
-      const command = shell.Command.sidecar('binaries/converter', [
-        'convert',
-        inputPath,
-        savePath,
-      ])
+      const command = shell.Command.sidecar('binaries/converter', ['convert', inputPath, savePath])
 
       command.stdout.on('data', (line: string) => {
         try {
@@ -224,7 +218,7 @@ export default function Home() {
 
       command.on('close', (data: { code: number | null }) => {
         if (data.code !== null && data.code !== 0) {
-          setPhase((prev) => {
+          setPhase(prev => {
             if (prev === 'saving') {
               processingAudioRef.current?.pause()
               playSFX('error')
@@ -271,8 +265,7 @@ export default function Home() {
     setStatusMessage('')
   }, [])
 
-  const progressPercent =
-    progress.total > 0 ? Math.round((progress.page / progress.total) * 100) : 0
+  const progressPercent = progress.total > 0 ? Math.round((progress.page / progress.total) * 100) : 0
 
   return (
     <>
@@ -280,56 +273,40 @@ export default function Home() {
         <title>Thai PDF Fixer - แปลง PDF ภาษาไทยเป็น Word</title>
       </Head>
 
-      <a href="#main-content" className="skip-link">
+      <a href='#main-content' className='skip-link'>
         ข้ามไปยังเนื้อหาหลัก
       </a>
 
-      <div aria-live="assertive" aria-atomic="true" className="sr-only" role="status">
+      <div aria-live='assertive' aria-atomic='true' className='sr-only' role='status'>
         {statusMessage}
       </div>
 
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-stone-50 to-emerald-50">
-        <main
-          id="main-content"
-          className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-4 py-12"
-        >
+      <div className='min-h-screen bg-gradient-to-br from-amber-50 via-stone-50 to-emerald-50'>
+        <main id='main-content' className='mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-4 py-12'>
           {/* ── Logo & Header ─────────────────────────────────── */}
-          <div className="mb-10 text-center">
-            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl border-4 border-stone-900 bg-gradient-to-br from-amber-400 to-yellow-300 shadow-[4px_4px_0px_0px_rgba(28,25,23,1)]">
-              <Icon
-                icon="mdi:file-document-edit"
-                className="text-4xl text-stone-900"
-                aria-hidden="true"
-              />
+          <div className='mb-10 text-center'>
+            <div className='mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl border-4 border-stone-900 bg-gradient-to-br from-amber-400 to-yellow-300 shadow-[4px_4px_0px_0px_rgba(28,25,23,1)]'>
+              <img src='/logo.png' alt='' aria-hidden='true' className='h-16 w-16' />
             </div>
-            <h1 className="mb-1 text-4xl font-black tracking-tight text-stone-900">
-              Thai PDF Fixer
-            </h1>
-            <p className="text-xl text-stone-600">แปลง PDF ภาษาไทยเป็น Word</p>
-            <p className="mt-1 text-base text-stone-400">
-              ดึงข้อความ ตาราง รูปภาพ พร้อมแก้ตัวอักษรเพี้ยน
-            </p>
+            <h1 className='mb-1 text-4xl font-black tracking-tight text-stone-900'>Thai PDF Fixer</h1>
+            <p className='text-xl text-stone-600'>แปลง PDF ภาษาไทยเป็น Word</p>
+            <p className='mt-1 text-base text-stone-400'>ดึงข้อความ ตาราง รูปภาพ พร้อมแก้ตัวอักษรเพี้ยน</p>
           </div>
 
           {/* ── IDLE: Select file ─────────────────────────────── */}
           {phase === 'idle' && (
-            <section className="w-full max-w-md space-y-6" aria-label="เลือกไฟล์">
-              <button
-                onClick={handleSelectFile}
-                disabled={!tauriReady}
-                className={btnPrimary}
-                aria-label="เลือกไฟล์ PDF เพื่อแปลง"
-              >
-                <Icon icon="mdi:file-pdf-box" className="text-3xl" aria-hidden="true" />
+            <section className='w-full max-w-md space-y-6' aria-label='เลือกไฟล์'>
+              <button onClick={handleSelectFile} disabled={!tauriReady} className={btnPrimary} aria-label='เลือกไฟล์ PDF เพื่อแปลง'>
+                <Icon icon='mdi:file-pdf-box' className='text-3xl' aria-hidden='true' />
                 {tauriReady ? 'เลือกไฟล์ PDF' : 'กำลังโหลด...'}
               </button>
 
-              <div className="rounded-xl border-2 border-stone-200 bg-white/60 p-5 text-center">
-                <div className="mb-2 flex items-center justify-center gap-2 text-stone-500">
-                  <Icon icon="mdi:information-outline" className="text-xl" aria-hidden="true" />
-                  <span className="font-semibold">วิธีใช้งาน</span>
+              <div className='rounded-xl border-2 border-stone-200 bg-white/60 p-5 text-center'>
+                <div className='mb-2 flex items-center justify-center gap-2 text-stone-500'>
+                  <Icon icon='mdi:information-outline' className='text-xl' aria-hidden='true' />
+                  <span className='font-semibold'>วิธีใช้งาน</span>
                 </div>
-                <ol className="space-y-1 text-left text-base text-stone-500">
+                <ol className='space-y-1 text-left text-base text-stone-500'>
                   <li>1. กดปุ่มด้านบนเพื่อเลือกไฟล์ PDF</li>
                   <li>2. รอระบบอ่านและแกะข้อความ</li>
                   <li>3. ดูตัวอย่างข้อความ หรือฟังด้วยเสียง</li>
@@ -341,39 +318,32 @@ export default function Home() {
 
           {/* ── EXTRACTING: Reading PDF ──────────────────────── */}
           {phase === 'extracting' && (
-            <section className="w-full max-w-md" aria-label="กำลังอ่านไฟล์" role="status">
-              <div className="rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
-                <div className="mb-6 flex justify-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-100">
-                    <Icon
-                      icon="mdi:loading"
-                      className="animate-spin text-5xl text-amber-500"
-                      aria-hidden="true"
-                    />
+            <section className='w-full max-w-md' aria-label='กำลังอ่านไฟล์' role='status'>
+              <div className='rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='mb-6 flex justify-center'>
+                  <div className='flex h-16 w-16 items-center justify-center rounded-full bg-amber-100'>
+                    <Icon icon='mdi:loading' className='animate-spin text-5xl text-amber-500' aria-hidden='true' />
                   </div>
                 </div>
 
-                <p className="mb-1 text-center text-2xl font-bold">กำลังอ่านไฟล์...</p>
-                {fileName && (
-                  <p className="mb-4 break-all text-center text-base text-stone-400">{fileName}</p>
-                )}
+                <p className='mb-1 text-center text-2xl font-bold'>กำลังอ่านไฟล์...</p>
+                {fileName && <p className='mb-4 break-all text-center text-base text-stone-400'>{fileName}</p>}
 
                 {progress.total > 0 && (
-                  <div className="mb-2">
+                  <div className='mb-2'>
                     <div
-                      className="h-5 overflow-hidden rounded-full border-2 border-stone-300 bg-stone-100"
-                      role="progressbar"
+                      className='h-5 overflow-hidden rounded-full border-2 border-stone-300 bg-stone-100'
+                      role='progressbar'
                       aria-valuenow={progressPercent}
                       aria-valuemin={0}
                       aria-valuemax={100}
-                      aria-label={`ความคืบหน้า ${progressPercent} เปอร์เซ็นต์`}
-                    >
+                      aria-label={`ความคืบหน้า ${progressPercent} เปอร์เซ็นต์`}>
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 transition-all duration-300"
+                        className='h-full rounded-full bg-gradient-to-r from-amber-400 to-yellow-300 transition-all duration-300'
                         style={{ width: `${progressPercent}%` }}
                       />
                     </div>
-                    <p className="mt-2 text-center text-base text-stone-500">
+                    <p className='mt-2 text-center text-base text-stone-500'>
                       {progress.message} ({progressPercent}%)
                     </p>
                   </div>
@@ -384,30 +354,27 @@ export default function Home() {
 
           {/* ── PREVIEW: Show extracted text ──────────────────── */}
           {phase === 'preview' && (
-            <section className="w-full max-w-md space-y-5" aria-label="ผลลัพธ์">
+            <section className='w-full max-w-md space-y-5' aria-label='ผลลัพธ์'>
               {/* File info */}
-              <div className="rounded-xl border-4 border-stone-900 bg-gradient-to-r from-sky-100 to-blue-50 p-5 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
-                <div className="mb-2 flex items-center justify-center gap-2">
-                  <Icon icon="mdi:check-circle" className="text-2xl text-sky-600" aria-hidden="true" />
-                  <p className="text-xl font-bold text-sky-800">อ่านไฟล์สำเร็จ</p>
+              <div className='rounded-xl border-4 border-stone-900 bg-gradient-to-r from-sky-100 to-blue-50 p-5 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='mb-2 flex items-center justify-center gap-2'>
+                  <Icon icon='mdi:check-circle' className='text-2xl text-sky-600' aria-hidden='true' />
+                  <p className='text-xl font-bold text-sky-800'>อ่านไฟล์สำเร็จ</p>
                 </div>
-                <p className="break-all text-center text-base text-stone-500">{fileName}</p>
-                <p className="text-center text-base text-stone-400">{progress.total} หน้า</p>
+                <p className='break-all text-center text-base text-stone-500'>{fileName}</p>
+                <p className='text-center text-base text-stone-400'>{progress.total} หน้า</p>
               </div>
 
               {/* Text preview */}
               {previewText && (
-                <div className="rounded-xl border-2 border-stone-200 bg-white">
-                  <div className="border-b border-stone-200 px-4 py-2">
-                    <span className="text-base font-semibold text-stone-500">
-                      ตัวอย่างข้อความที่แกะได้
-                    </span>
+                <div className='rounded-xl border-2 border-stone-200 bg-white'>
+                  <div className='border-b border-stone-200 px-4 py-2'>
+                    <span className='text-base font-semibold text-stone-500'>ตัวอย่างข้อความที่แกะได้</span>
                   </div>
                   <div
-                    className="max-h-60 overflow-y-auto p-4 text-base leading-relaxed text-stone-700"
-                    role="region"
-                    aria-label="ข้อความที่แกะจาก PDF"
-                  >
+                    className='max-h-60 overflow-y-auto p-4 text-base leading-relaxed text-stone-700'
+                    role='region'
+                    aria-label='ข้อความที่แกะจาก PDF'>
                     {previewText.split('\n').map((line, idx) => (
                       <p key={`line-${idx}`} className={line.trim() ? '' : 'h-4'}>
                         {line}
@@ -418,38 +385,24 @@ export default function Home() {
               )}
 
               {!previewText && (
-                <div className="rounded-xl border-2 border-stone-200 bg-white p-4 text-center text-stone-400">
-                  ไม่พบข้อความในไฟล์ PDF นี้
-                </div>
+                <div className='rounded-xl border-2 border-stone-200 bg-white p-4 text-center text-stone-400'>ไม่พบข้อความในไฟล์ PDF นี้</div>
               )}
 
               {/* Action buttons */}
-              <button
-                onClick={handleSaveAsWord}
-                className={btnSuccess}
-                aria-label="บันทึกเป็นไฟล์ Word"
-              >
-                <Icon icon="mdi:content-save" className="text-2xl" aria-hidden="true" />
+              <button onClick={handleSaveAsWord} className={btnSuccess} aria-label='บันทึกเป็นไฟล์ Word'>
+                <Icon icon='mdi:content-save' className='text-2xl' aria-hidden='true' />
                 บันทึกเป็น Word
               </button>
 
               {previewText && (
-                <button
-                  onClick={handleSpeak}
-                  className={btnSecondary}
-                  aria-label={speaking ? 'หยุดอ่าน' : 'ฟังข้อความด้วยเสียง'}
-                >
-                  <Icon
-                    icon={speaking ? 'mdi:stop-circle' : 'mdi:volume-high'}
-                    className="text-2xl"
-                    aria-hidden="true"
-                  />
+                <button onClick={handleSpeak} className={btnSecondary} aria-label={speaking ? 'หยุดอ่าน' : 'ฟังข้อความด้วยเสียง'}>
+                  <Icon icon={speaking ? 'mdi:stop-circle' : 'mdi:volume-high'} className='text-2xl' aria-hidden='true' />
                   {speaking ? 'หยุดอ่าน' : 'ฟังข้อความด้วยเสียง'}
                 </button>
               )}
 
-              <button onClick={handleReset} className={btnSecondary} aria-label="เลือกไฟล์ใหม่">
-                <Icon icon="mdi:arrow-left" className="text-2xl" aria-hidden="true" />
+              <button onClick={handleReset} className={btnSecondary} aria-label='เลือกไฟล์ใหม่'>
+                <Icon icon='mdi:arrow-left' className='text-2xl' aria-hidden='true' />
                 เลือกไฟล์ใหม่
               </button>
             </section>
@@ -457,35 +410,30 @@ export default function Home() {
 
           {/* ── SAVING: Converting to DOCX ───────────────────── */}
           {phase === 'saving' && (
-            <section className="w-full max-w-md" aria-label="กำลังบันทึก" role="status">
-              <div className="rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
-                <div className="mb-6 flex justify-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-                    <Icon
-                      icon="mdi:loading"
-                      className="animate-spin text-5xl text-emerald-500"
-                      aria-hidden="true"
-                    />
+            <section className='w-full max-w-md' aria-label='กำลังบันทึก' role='status'>
+              <div className='rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='mb-6 flex justify-center'>
+                  <div className='flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100'>
+                    <Icon icon='mdi:loading' className='animate-spin text-5xl text-emerald-500' aria-hidden='true' />
                   </div>
                 </div>
-                <p className="mb-4 text-center text-2xl font-bold">กำลังบันทึกเป็น Word...</p>
+                <p className='mb-4 text-center text-2xl font-bold'>กำลังบันทึกเป็น Word...</p>
 
                 {progress.total > 0 && (
-                  <div className="mb-2">
+                  <div className='mb-2'>
                     <div
-                      className="h-5 overflow-hidden rounded-full border-2 border-stone-300 bg-stone-100"
-                      role="progressbar"
+                      className='h-5 overflow-hidden rounded-full border-2 border-stone-300 bg-stone-100'
+                      role='progressbar'
                       aria-valuenow={progressPercent}
                       aria-valuemin={0}
                       aria-valuemax={100}
-                      aria-label={`ความคืบหน้า ${progressPercent} เปอร์เซ็นต์`}
-                    >
+                      aria-label={`ความคืบหน้า ${progressPercent} เปอร์เซ็นต์`}>
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-300 transition-all duration-300"
+                        className='h-full rounded-full bg-gradient-to-r from-emerald-400 to-green-300 transition-all duration-300'
                         style={{ width: `${progressPercent}%` }}
                       />
                     </div>
-                    <p className="mt-2 text-center text-base text-stone-500">
+                    <p className='mt-2 text-center text-base text-stone-500'>
                       {progress.message} ({progressPercent}%)
                     </p>
                   </div>
@@ -496,32 +444,20 @@ export default function Home() {
 
           {/* ── SAVED: Success ────────────────────────────────── */}
           {phase === 'saved' && (
-            <section className="w-full max-w-md space-y-5" aria-label="บันทึกสำเร็จ">
-              <div className="rounded-xl border-4 border-stone-900 bg-gradient-to-r from-emerald-100 to-green-50 p-6 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
-                <div className="mb-3 flex justify-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-200">
-                    <Icon
-                      icon="mdi:check-bold"
-                      className="text-3xl text-emerald-700"
-                      aria-hidden="true"
-                    />
+            <section className='w-full max-w-md space-y-5' aria-label='บันทึกสำเร็จ'>
+              <div className='rounded-xl border-4 border-stone-900 bg-gradient-to-r from-emerald-100 to-green-50 p-6 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='mb-3 flex justify-center'>
+                  <div className='flex h-14 w-14 items-center justify-center rounded-full bg-emerald-200'>
+                    <Icon icon='mdi:check-bold' className='text-3xl text-emerald-700' aria-hidden='true' />
                   </div>
                 </div>
-                <p className="text-center text-2xl font-bold text-emerald-800">
-                  บันทึกสำเร็จ!
-                </p>
-                <p className="mt-1 text-center text-lg text-emerald-600">
-                  {progress.total} หน้า
-                </p>
-                {outputPath && (
-                  <p className="mt-2 break-all text-center text-sm text-stone-400">
-                    {outputPath}
-                  </p>
-                )}
+                <p className='text-center text-2xl font-bold text-emerald-800'>บันทึกสำเร็จ!</p>
+                <p className='mt-1 text-center text-lg text-emerald-600'>{progress.total} หน้า</p>
+                {outputPath && <p className='mt-2 break-all text-center text-sm text-stone-400'>{outputPath}</p>}
               </div>
 
-              <button onClick={handleReset} className={btnPrimary} aria-label="แปลงไฟล์ใหม่">
-                <Icon icon="mdi:file-plus" className="text-2xl" aria-hidden="true" />
+              <button onClick={handleReset} className={btnPrimary} aria-label='แปลงไฟล์ใหม่'>
+                <Icon icon='mdi:file-plus' className='text-2xl' aria-hidden='true' />
                 แปลงไฟล์ใหม่
               </button>
             </section>
@@ -529,27 +465,25 @@ export default function Home() {
 
           {/* ── ERROR ─────────────────────────────────────────── */}
           {phase === 'error' && (
-            <section className="w-full max-w-md space-y-5" aria-label="เกิดข้อผิดพลาด">
-              <div className="rounded-xl border-4 border-stone-900 bg-gradient-to-r from-red-100 to-rose-50 p-6 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]">
-                <div className="mb-3 flex justify-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-200">
-                    <Icon icon="mdi:alert" className="text-3xl text-red-700" aria-hidden="true" />
+            <section className='w-full max-w-md space-y-5' aria-label='เกิดข้อผิดพลาด'>
+              <div className='rounded-xl border-4 border-stone-900 bg-gradient-to-r from-red-100 to-rose-50 p-6 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='mb-3 flex justify-center'>
+                  <div className='flex h-14 w-14 items-center justify-center rounded-full bg-red-200'>
+                    <Icon icon='mdi:alert' className='text-3xl text-red-700' aria-hidden='true' />
                   </div>
                 </div>
-                <p className="text-center text-2xl font-bold text-red-800">เกิดข้อผิดพลาด</p>
-                <p className="mt-3 text-center text-lg text-red-600">{errorMessage}</p>
+                <p className='text-center text-2xl font-bold text-red-800'>เกิดข้อผิดพลาด</p>
+                <p className='mt-3 text-center text-lg text-red-600'>{errorMessage}</p>
               </div>
 
-              <button onClick={handleReset} className={btnDanger} aria-label="ลองใหม่">
-                <Icon icon="mdi:refresh" className="text-2xl" aria-hidden="true" />
+              <button onClick={handleReset} className={btnDanger} aria-label='ลองใหม่'>
+                <Icon icon='mdi:refresh' className='text-2xl' aria-hidden='true' />
                 ลองใหม่
               </button>
             </section>
           )}
 
-          <p className="mt-12 text-center text-sm text-stone-400">
-            Thai PDF Fixer v2.0 — สำหรับผู้พิการทางสายตา
-          </p>
+          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v2.0 — สำหรับผู้พิการทางสายตา</p>
         </main>
       </div>
     </>
