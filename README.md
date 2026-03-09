@@ -5,6 +5,10 @@
 
 ---
 
+## >>> [ดาวน์โหลดโปรแกรม (คลิกที่นี่)](https://github.com/SatangBudsai/thai-pdf-fixer-for-the-blind/releases/latest) <<<
+
+---
+
 ## สิ่งที่โปรแกรมทำได้
 
 - แปลงข้อความภาษาไทยจาก PDF ที่ตัวอักษรเพี้ยน ให้กลับมาอ่านได้ปกติ
@@ -17,7 +21,7 @@
 
 ## วิธีติดตั้ง (สำหรับผู้ใช้ทั่วไป)
 
-1. ไปที่หน้า Releases บน GitHub
+1. ไปที่หน้า [Releases](https://github.com/SatangBudsai/thai-pdf-fixer-for-the-blind/releases/latest) บน GitHub
 2. ดาวน์โหลดไฟล์ติดตั้ง:
    - ไฟล์ `.exe` — ตัวติดตั้งแบบ NSIS (แนะนำ)
    - ไฟล์ `.msi` — ตัวติดตั้งแบบ Windows Installer (เหมาะสำหรับผู้ใช้ screen reader เพราะ accessible กว่า)
@@ -75,6 +79,8 @@ thai-pdf-fixer-for-the-blind/
   python/                  # ตัวแปลง PDF (Python)
     converter.py           # โค้ดหลักในการแปลง PDF
     requirements.txt       # library ที่ใช้
+  scripts/                 # สคริปต์ช่วย
+    bump-version.mjs       # อัปเดตเลขเวอร์ชันทั้งโปรเจกต์
   .github/workflows/       # GitHub Actions สำหรับ build และ release
 ```
 
@@ -127,22 +133,29 @@ npm run tauri:dev
 ไปที่ GitHub repository → Settings → Secrets and variables → Actions แล้วเพิ่ม:
 
 1. `TAURI_SIGNING_PRIVATE_KEY` — เนื้อหาของไฟล์ `src-tauri/.tauri/updater.key`
-2. `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — รหัสผ่านของ key (ถ้าไม่ได้ตั้งให้เว้นว่าง)
+2. `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — รหัสผ่านของ key (ถ้าไม่ได้ตั้งไว้ ไม่ต้องเพิ่ม secret นี้)
 
 ### ปล่อยเวอร์ชันใหม่
 
-#### 1. แก้เลขเวอร์ชันในไฟล์ (ทั้ง 3 ที่)
+#### 1. อัปเดตเลขเวอร์ชัน (คำสั่งเดียว แก้ให้ทั้ง 4 ไฟล์)
 
-- `package.json` → `"version": "1.0.0"`
-- `src-tauri/tauri.conf.json` → `"version": "1.0.0"`
-- `src-tauri/Cargo.toml` → `version = "1.0.0"`
+```bash
+npm run bump 1.2.0
+```
+
+สคริปต์จะแก้เวอร์ชันให้อัตโนมัติใน:
+
+- `package.json`
+- `src-tauri/tauri.conf.json`
+- `src-tauri/Cargo.toml`
+- `src/pages/index.tsx`
 
 #### 2. commit และ tag
 
 ```bash
 git add -A
-git commit -m "release: v1.0.0"
-git tag v1.0.0
+git commit -m "release: v1.2.0"
+git tag v1.2.0
 git push origin main --tags
 ```
 
