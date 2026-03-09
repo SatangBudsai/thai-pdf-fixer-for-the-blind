@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Icon } from '@iconify/react'
 import Head from 'next/head'
-import { speak, speakAsync, stop as stopSpeech, waitForVoices } from '@/lib/speech'
+import { speak, speakAsync, stop as stopSpeech } from '@/lib/speech'
 
 // Phases: idle → extracting → preview → saving → saved → error
 type AppPhase = 'idle' | 'extracting' | 'preview' | 'saving' | 'saved' | 'error'
@@ -62,10 +62,10 @@ export default function Home() {
   const retryBtnRef = useRef<HTMLButtonElement>(null)
   const newFileBtnRef = useRef<HTMLButtonElement>(null)
 
-  // Load Tauri APIs on mount
+  // Load Tauri APIs on mount (don't block on voices — speakAsync handles that)
   useEffect(() => {
     if (globalThis.window === undefined) return
-    Promise.all([import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-shell'), waitForVoices()])
+    Promise.all([import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-shell')])
       .then(([dialog, shell]) => {
         tauriDialogRef.current = dialog
         tauriShellRef.current = shell
@@ -77,7 +77,6 @@ export default function Home() {
   // Auto-focus and TTS announcements when phase changes
   useEffect(() => {
     const timer = setTimeout(async () => {
-      // Don't call stopSpeech() — let speakAsync() naturally replace previous speech
       switch (phase) {
         case 'idle':
           selectBtnRef.current?.focus()
@@ -106,7 +105,7 @@ export default function Home() {
     return () => clearTimeout(timer)
   }, [phase, errorMessage, progress.total, isFileLockedError])
 
-  // Announce to screen reader on mount
+  // Welcome TTS on mount — speakAsync waits for voices internally
   useEffect(() => {
     if (tauriReady) {
       speakAsync('ยินดีต้อนรับสู่ Thai PDF Fixer กดปุ่มเพื่อเลือกไฟล์ PDF')
@@ -153,7 +152,7 @@ export default function Home() {
 
       // Play upload sound + TTS announcement, wait for speech to finish
       playSFX('upload')
-      await speakAsync(`เลือกไฟล์แล้ว ${name} กำลังอ่านและแกะข้อความจากไฟล์ PDF กรุณารอสักครู่`)
+      await speakAsync(`เลือกไฟล์แล้ว กำลังอ่านและแกะข้อความจากไฟล์ PDF กรุณารอสักครู่`)
 
       // Start processing sound after speech finishes
       processingAudioRef.current = playSFX('processing')
@@ -288,19 +287,21 @@ export default function Home() {
   }, [inputPath, announce, setError])
 
   // ── TTS ─────────────────────────────────────────────────────
-  const handleSpeak = useCallback(() => {
+  const handleSpeak = useCallback(async () => {
     if (speaking) {
       stopSpeech()
       setSpeaking(false)
+      await speakAsync('หยุดอ่านแล้ว')
       return
     }
     if (!previewText) return
     setSpeaking(true)
+    await speakAsync('กำลังอ่านข้อความที่แกะได้จากไฟล์ PDF')
     speak(previewText, () => setSpeaking(false))
   }, [speaking, previewText])
 
   // ── Reset ───────────────────────────────────────────────────
-  const handleReset = useCallback(() => {
+  const handleReset = useCallback(async () => {
     stopSpeech()
     setSpeaking(false)
     setPhase('idle')
@@ -312,6 +313,7 @@ export default function Home() {
     setOutputPath('')
     setPreviewText('')
     setStatusMessage('')
+    await speakAsync('พร้อมเลือกไฟล์ใหม่ กดปุ่มเพื่อเลือกไฟล์ PDF')
   }, [])
 
   const progressPercent = progress.total > 0 ? Math.round((progress.page / progress.total) * 100) : 0
@@ -409,22 +411,26 @@ export default function Home() {
           {/* ── PREVIEW: Show extracted text ──────────────────── */}
           {phase === 'preview' && (
             <section className='w-full max-w-md space-y-5' aria-label='ผลลัพธ์'>
-              {/* File info */}
+              {/* Success card — read complete */}
               <div className='overflow-hidden rounded-xl border-4 border-stone-900 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
-                <div className='bg-gradient-to-r from-emerald-500 to-teal-400 px-6 py-5 text-center'>
-                  <div className='mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm'>
-                    <Icon icon='mdi:check-bold' className='text-3xl text-white' aria-hidden='true' />
+                <div className='relative bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 px-6 py-6 text-center'>
+                  <div className='absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.15),transparent_70%)]' />
+                  <div className='relative'>
+                    <div className='mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border-4 border-white/40 bg-white/20 backdrop-blur-sm'>
+                      <Icon icon='mdi:check-circle' className='text-4xl text-white' aria-hidden='true' />
+                    </div>
+                    <p className='text-2xl font-black text-white drop-shadow-sm'>อ่านไฟล์สำเร็จ!</p>
+                    <p className='mt-1 text-base font-medium text-white/80'>พร้อมบันทึกเป็นไฟล์ Word</p>
                   </div>
-                  <p className='text-2xl font-black text-white'>อ่านไฟล์สำเร็จ!</p>
                 </div>
-                <div className='bg-gradient-to-b from-emerald-50 to-white px-6 py-4'>
-                  <div className='flex items-center justify-center gap-3'>
-                    <div className='flex items-center gap-2 rounded-full bg-emerald-100 px-4 py-1.5'>
-                      <Icon icon='mdi:file-document-outline' className='text-lg text-emerald-600' aria-hidden='true' />
-                      <span className='text-base font-semibold text-emerald-700'>{progress.total} หน้า</span>
+                <div className='bg-white px-6 py-4'>
+                  <div className='flex items-center justify-center gap-4'>
+                    <div className='flex items-center gap-2 rounded-lg border-2 border-emerald-200 bg-emerald-50 px-4 py-2'>
+                      <Icon icon='mdi:file-document-outline' className='text-xl text-emerald-600' aria-hidden='true' />
+                      <span className='text-lg font-bold text-emerald-700'>{progress.total} หน้า</span>
                     </div>
                   </div>
-                  <p className='mt-2 break-all text-center text-sm text-stone-400'>{fileName}</p>
+                  <p className='mt-3 break-all text-center text-sm text-stone-400'>{fileName}</p>
                 </div>
               </div>
 
@@ -509,20 +515,28 @@ export default function Home() {
           {phase === 'saved' && (
             <section className='w-full max-w-md space-y-5' aria-label='บันทึกสำเร็จ'>
               <div className='overflow-hidden rounded-xl border-4 border-stone-900 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
-                <div className='bg-gradient-to-r from-emerald-500 to-green-400 px-6 py-5 text-center'>
-                  <div className='mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm'>
-                    <Icon icon='mdi:check-bold' className='text-3xl text-white' aria-hidden='true' />
+                <div className='relative bg-gradient-to-r from-emerald-500 via-green-400 to-emerald-500 px-6 py-6 text-center'>
+                  <div className='absolute inset-0 bg-[radial-gradient(circle_at_70%_50%,rgba(255,255,255,0.15),transparent_70%)]' />
+                  <div className='relative'>
+                    <div className='mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border-4 border-white/40 bg-white/20 backdrop-blur-sm'>
+                      <Icon icon='mdi:file-check' className='text-4xl text-white' aria-hidden='true' />
+                    </div>
+                    <p className='text-2xl font-black text-white drop-shadow-sm'>บันทึกสำเร็จ!</p>
+                    <p className='mt-1 text-base font-medium text-white/80'>ไฟล์ Word พร้อมใช้งานแล้ว</p>
                   </div>
-                  <p className='text-2xl font-black text-white'>บันทึกสำเร็จ!</p>
                 </div>
-                <div className='bg-gradient-to-b from-emerald-50 to-white px-6 py-4'>
-                  <div className='flex items-center justify-center gap-3'>
-                    <div className='flex items-center gap-2 rounded-full bg-emerald-100 px-4 py-1.5'>
-                      <Icon icon='mdi:file-word-outline' className='text-lg text-emerald-600' aria-hidden='true' />
-                      <span className='text-base font-semibold text-emerald-700'>{progress.total} หน้า</span>
+                <div className='bg-white px-6 py-4'>
+                  <div className='flex items-center justify-center gap-4'>
+                    <div className='flex items-center gap-2 rounded-lg border-2 border-emerald-200 bg-emerald-50 px-4 py-2'>
+                      <Icon icon='mdi:file-word' className='text-xl text-emerald-600' aria-hidden='true' />
+                      <span className='text-lg font-bold text-emerald-700'>{progress.total} หน้า</span>
                     </div>
                   </div>
-                  {outputPath && <p className='mt-2 break-all text-center text-sm text-stone-400'>{outputPath}</p>}
+                  {outputPath && (
+                    <p className='mt-3 break-all text-center text-sm text-stone-400'>
+                      บันทึกที่: {outputPath}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -536,14 +550,19 @@ export default function Home() {
           {/* ── ERROR ─────────────────────────────────────────── */}
           {phase === 'error' && (
             <section className='w-full max-w-md space-y-5' aria-label='เกิดข้อผิดพลาด'>
-              <div className='rounded-xl border-4 border-stone-900 bg-gradient-to-r from-red-100 to-rose-50 p-6 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
-                <div className='mb-3 flex justify-center'>
-                  <div className='flex h-14 w-14 items-center justify-center rounded-full bg-red-200'>
-                    <Icon icon='mdi:alert' className='text-3xl text-red-700' aria-hidden='true' />
+              <div className='overflow-hidden rounded-xl border-4 border-stone-900 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='relative bg-gradient-to-r from-red-500 via-rose-400 to-red-500 px-6 py-6 text-center'>
+                  <div className='absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.1),transparent_70%)]' />
+                  <div className='relative'>
+                    <div className='mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border-4 border-white/40 bg-white/20 backdrop-blur-sm'>
+                      <Icon icon='mdi:alert-circle' className='text-4xl text-white' aria-hidden='true' />
+                    </div>
+                    <p className='text-2xl font-black text-white drop-shadow-sm'>เกิดข้อผิดพลาด</p>
                   </div>
                 </div>
-                <p className='text-center text-2xl font-bold text-red-800'>เกิดข้อผิดพลาด</p>
-                <p className='mt-3 text-center text-lg text-red-600'>{errorMessage}</p>
+                <div className='bg-white px-6 py-4'>
+                  <p className='text-center text-lg text-red-600'>{errorMessage}</p>
+                </div>
               </div>
 
               {isFileLockedError ? (
