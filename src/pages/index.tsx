@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Icon } from '@iconify/react'
 import Head from 'next/head'
+import type { Update } from '@tauri-apps/plugin-updater'
 
 // Phases: idle → extracting → preview → saving → saved → error
 type AppPhase = 'idle' | 'extracting' | 'preview' | 'saving' | 'saved' | 'error'
@@ -51,6 +52,8 @@ export default function Home() {
   const [outputPath, setOutputPath] = useState('')
   const [previewText, setPreviewText] = useState('')
   const [tauriReady, setTauriReady] = useState(false)
+  const [updateAvailable, setUpdateAvailable] = useState<Update | null>(null)
+  const [updating, setUpdating] = useState(false)
 
   const tauriDialogRef = useRef<typeof import('@tauri-apps/plugin-dialog') | null>(null)
   const tauriShellRef = useRef<typeof import('@tauri-apps/plugin-shell') | null>(null)
@@ -71,12 +74,35 @@ export default function Home() {
         setTauriReady(true)
       })
       .catch(err => console.error('Failed to load Tauri APIs:', err))
+
+    // Check for updates
+    import('@tauri-apps/plugin-updater')
+      .then(({ check }) => check())
+      .then(update => {
+        if (update) setUpdateAvailable(update)
+      })
+      .catch(err => console.error('Update check failed:', err))
   }, [])
 
   // Screen reader announcement via aria-live region
   const announce = useCallback((msg: string) => {
     setStatusMessage(msg)
   }, [])
+
+  // Handle update install
+  const handleUpdate = useCallback(async () => {
+    if (!updateAvailable) return
+    setUpdating(true)
+    announce('กำลังดาวน์โหลดและติดตั้งอัปเดต กรุณารอสักครู่')
+    try {
+      await updateAvailable.downloadAndInstall()
+      const { relaunch } = await import('@tauri-apps/plugin-process')
+      await relaunch()
+    } catch (err) {
+      console.error('Update failed:', err)
+      setUpdating(false)
+    }
+  }, [updateAvailable, announce])
 
   // Auto-focus and screen reader announcements when phase changes
   useEffect(() => {
@@ -288,6 +314,34 @@ export default function Home() {
       </div>
 
       <div className='min-h-screen bg-gradient-to-br from-amber-50 via-stone-50 to-emerald-50'>
+        {/* ── Update banner ──────────────────────────────────── */}
+        {updateAvailable && (
+          <div className='border-b-4 border-blue-900 bg-gradient-to-r from-blue-500 to-indigo-500 px-4 py-3 text-white' role='alert'>
+            <div className='mx-auto flex max-w-2xl items-center justify-between gap-4'>
+              <div className='flex items-center gap-3'>
+                <Icon icon='mdi:download-circle' className='text-2xl' aria-hidden='true' />
+                <span className='text-lg font-bold'>
+                  มีเวอร์ชันใหม่ {updateAvailable.version} พร้อมอัปเดต!
+                </span>
+              </div>
+              <button
+                onClick={handleUpdate}
+                disabled={updating}
+                className='rounded-lg border-2 border-white bg-white/20 px-5 py-2 text-lg font-bold text-white hover:bg-white/30 focus:outline-none focus:ring-4 focus:ring-white/50 disabled:opacity-50'
+                aria-label={updating ? 'กำลังอัปเดต' : 'อัปเดตเลย'}>
+                {updating ? (
+                  <>
+                    <Icon icon='mdi:loading' className='mr-2 inline animate-spin' aria-hidden='true' />
+                    กำลังอัปเดต...
+                  </>
+                ) : (
+                  'อัปเดตเลย'
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
         <main id='main-content' className='mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-4 py-12'>
           {/* ── Logo & Header ─────────────────────────────────── */}
           <div className='mb-10 text-center'>
