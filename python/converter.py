@@ -374,6 +374,9 @@ def main():
             emit_error(f"Unknown command: {command}. Use 'convert' or 'preview'.")
             sys.exit(1)
 
+    except PermissionError:
+        emit_error("ไม่สามารถบันทึกไฟล์ได้ — กรุณาปิดไฟล์ Word ก่อนแล้วลองใหม่")
+        sys.exit(1)
     except Exception as e:
         emit_error(f"เกิดข้อผิดพลาด: {str(e)}")
         sys.exit(1)

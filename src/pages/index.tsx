@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Icon } from '@iconify/react'
 import Head from 'next/head'
-import { speak, stop as stopSpeech } from '@/lib/speech'
+import { speak, speakAsync, stop as stopSpeech } from '@/lib/speech'
 
 // Phases: idle → extracting → preview → saving → saved → error
 type AppPhase = 'idle' | 'extracting' | 'preview' | 'saving' | 'saved' | 'error'
@@ -55,6 +55,12 @@ export default function Home() {
   const tauriShellRef = useRef<typeof import('@tauri-apps/plugin-shell') | null>(null)
   const processingAudioRef = useRef<HTMLAudioElement | null>(null)
 
+  // Refs for auto-focus
+  const selectBtnRef = useRef<HTMLButtonElement>(null)
+  const saveBtnRef = useRef<HTMLButtonElement>(null)
+  const retryBtnRef = useRef<HTMLButtonElement>(null)
+  const newFileBtnRef = useRef<HTMLButtonElement>(null)
+
   // Load Tauri APIs on mount
   useEffect(() => {
     if (globalThis.window === undefined) return
@@ -66,6 +72,37 @@ export default function Home() {
       })
       .catch(err => console.error('Failed to load Tauri APIs:', err))
   }, [])
+
+  // Auto-focus and TTS announcements when phase changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      switch (phase) {
+        case 'idle':
+          selectBtnRef.current?.focus()
+          break
+        case 'preview':
+          saveBtnRef.current?.focus()
+          speakAsync('อ่านไฟล์สำเร็จ กดปุ่มบันทึกเป็น Word เพื่อดำเนินการต่อ')
+          break
+        case 'saved':
+          newFileBtnRef.current?.focus()
+          speakAsync('บันทึกไฟล์ Word สำเร็จแล้ว')
+          break
+        case 'error':
+          retryBtnRef.current?.focus()
+          speakAsync(`เกิดข้อผิดพลาด ${errorMessage}`)
+          break
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [phase, errorMessage])
+
+  // Announce to screen reader on mount
+  useEffect(() => {
+    if (tauriReady) {
+      speakAsync('ยินดีต้อนรับสู่ Thai PDF Fixer กดปุ่มเพื่อเลือกไฟล์ PDF')
+    }
+  }, [tauriReady])
 
   const announce = useCallback((msg: string) => {
     setStatusMessage(msg)
@@ -91,11 +128,20 @@ export default function Home() {
       setPreviewText('')
       setOutputPath('')
 
+      // Play upload sound + TTS
+      playSFX('upload')
+      stopSpeech()
+
       // Start extracting text (preview mode — no DOCX yet)
       setPhase('extracting')
       setProgress({ page: 0, total: 0, message: 'กำลังอ่านไฟล์...' })
       announce(`กำลังอ่านไฟล์ ${name}`)
-      processingAudioRef.current = playSFX('processing')
+      speakAsync(`กำลังอ่านไฟล์ ${name} กรุณารอสักครู่`)
+
+      // Start processing sound after a short delay
+      setTimeout(() => {
+        processingAudioRef.current = playSFX('processing')
+      }, 500)
 
       let collectedText = ''
 
@@ -180,6 +226,8 @@ export default function Home() {
       setPhase('saving')
       setProgress({ page: 0, total: 0, message: 'กำลังสร้างไฟล์ Word...' })
       announce('กำลังบันทึกเป็นไฟล์ Word')
+      stopSpeech()
+      speakAsync('กำลังแปลงไฟล์เป็น Word กรุณารอสักครู่')
       processingAudioRef.current = playSFX('processing')
 
       const command = shell.Command.sidecar('binaries/converter', ['convert', inputPath, savePath])
@@ -296,7 +344,7 @@ export default function Home() {
           {/* ── IDLE: Select file ─────────────────────────────── */}
           {phase === 'idle' && (
             <section className='w-full max-w-md space-y-6' aria-label='เลือกไฟล์'>
-              <button onClick={handleSelectFile} disabled={!tauriReady} className={btnPrimary} aria-label='เลือกไฟล์ PDF เพื่อแปลง'>
+              <button ref={selectBtnRef} onClick={handleSelectFile} disabled={!tauriReady} className={btnPrimary} aria-label='เลือกไฟล์ PDF เพื่อแปลง'>
                 <Icon icon='mdi:file-pdf-box' className='text-3xl' aria-hidden='true' />
                 {tauriReady ? 'เลือกไฟล์ PDF' : 'กำลังโหลด...'}
               </button>
@@ -398,7 +446,7 @@ export default function Home() {
               )}
 
               {/* Action buttons */}
-              <button onClick={handleSaveAsWord} className={btnSuccess} aria-label='บันทึกเป็นไฟล์ Word'>
+              <button ref={saveBtnRef} onClick={handleSaveAsWord} className={btnSuccess} aria-label='บันทึกเป็นไฟล์ Word'>
                 <Icon icon='mdi:content-save' className='text-2xl' aria-hidden='true' />
                 บันทึกเป็น Word
               </button>
@@ -426,7 +474,7 @@ export default function Home() {
                     <Icon icon='mdi:loading' className='animate-spin text-5xl text-emerald-500' aria-hidden='true' />
                   </div>
                 </div>
-                <p className='mb-4 text-center text-2xl font-bold'>กำลังบันทึกเป็น Word...</p>
+                <p className='mb-4 text-center text-2xl font-bold'>กำลังแปลงเป็น Word...</p>
 
                 {progress.total > 0 && (
                   <div className='mb-2'>
@@ -454,18 +502,25 @@ export default function Home() {
           {/* ── SAVED: Success ────────────────────────────────── */}
           {phase === 'saved' && (
             <section className='w-full max-w-md space-y-5' aria-label='บันทึกสำเร็จ'>
-              <div className='rounded-xl border-4 border-stone-900 bg-gradient-to-r from-emerald-100 to-green-50 p-6 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
-                <div className='mb-3 flex justify-center'>
-                  <div className='flex h-14 w-14 items-center justify-center rounded-full bg-emerald-200'>
-                    <Icon icon='mdi:check-bold' className='text-3xl text-emerald-700' aria-hidden='true' />
+              <div className='overflow-hidden rounded-xl border-4 border-stone-900 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='bg-gradient-to-r from-emerald-500 to-green-400 px-6 py-5 text-center'>
+                  <div className='mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/30 backdrop-blur-sm'>
+                    <Icon icon='mdi:check-bold' className='text-3xl text-white' aria-hidden='true' />
                   </div>
+                  <p className='text-2xl font-black text-white'>บันทึกสำเร็จ!</p>
                 </div>
-                <p className='text-center text-2xl font-bold text-emerald-800'>บันทึกสำเร็จ!</p>
-                <p className='mt-1 text-center text-lg text-emerald-600'>{progress.total} หน้า</p>
-                {outputPath && <p className='mt-2 break-all text-center text-sm text-stone-400'>{outputPath}</p>}
+                <div className='bg-gradient-to-b from-emerald-50 to-white px-6 py-4'>
+                  <div className='flex items-center justify-center gap-3'>
+                    <div className='flex items-center gap-2 rounded-full bg-emerald-100 px-4 py-1.5'>
+                      <Icon icon='mdi:file-word-outline' className='text-lg text-emerald-600' aria-hidden='true' />
+                      <span className='text-base font-semibold text-emerald-700'>{progress.total} หน้า</span>
+                    </div>
+                  </div>
+                  {outputPath && <p className='mt-2 break-all text-center text-sm text-stone-400'>{outputPath}</p>}
+                </div>
               </div>
 
-              <button onClick={handleReset} className={btnPrimary} aria-label='แปลงไฟล์ใหม่'>
+              <button ref={newFileBtnRef} onClick={handleReset} className={btnPrimary} aria-label='แปลงไฟล์ใหม่'>
                 <Icon icon='mdi:file-plus' className='text-2xl' aria-hidden='true' />
                 แปลงไฟล์ใหม่
               </button>
@@ -485,7 +540,7 @@ export default function Home() {
                 <p className='mt-3 text-center text-lg text-red-600'>{errorMessage}</p>
               </div>
 
-              <button onClick={handleReset} className={btnDanger} aria-label='ลองใหม่'>
+              <button ref={retryBtnRef} onClick={handleReset} className={btnDanger} aria-label='ลองใหม่'>
                 <Icon icon='mdi:refresh' className='text-2xl' aria-hidden='true' />
                 ลองใหม่
               </button>
