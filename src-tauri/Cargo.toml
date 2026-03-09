@@ -1,6 +1,6 @@
 [package]
 name = "thai-pdf-fixer"
-version = "1.1.5"
+version = "1.1.6"
 description = "Thai PDF to Word converter for the visually impaired"
 authors = ["you"]
 edition = "2021"
