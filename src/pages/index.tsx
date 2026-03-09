@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Icon } from '@iconify/react'
 import Head from 'next/head'
-import { speak, speakAsync, stop as stopSpeech } from '@/lib/speech'
 
 // Phases: idle → extracting → preview → saving → saved → error
 type AppPhase = 'idle' | 'extracting' | 'preview' | 'saving' | 'saved' | 'error'
@@ -10,12 +9,6 @@ interface Progress {
   page: number
   total: number
   message: string
-}
-
-function playSFX(name: string): HTMLAudioElement {
-  const audio = new Audio(`/sounds/${name}.mp3`)
-  audio.play().catch(() => {})
-  return audio
 }
 
 // ── Button styles (Neo-Brutalism + accessible) ────────────────
@@ -39,12 +32,19 @@ const btnSuccess = btn('bg-gradient-to-r from-emerald-400 to-green-300 text-ston
 const btnSecondary = btn('bg-white text-stone-900')
 const btnDanger = btn('bg-gradient-to-r from-red-400 to-rose-300 text-stone-900')
 
+function playSFX(name: 'upload' | 'processing' | 'success' | 'error') {
+  try {
+    const audio = new Audio(`/sounds/${name}.mp3`)
+    audio.volume = 0.5
+    audio.play().catch(() => {})
+  } catch {}
+}
+
 export default function Home() {
   const [phase, setPhase] = useState<AppPhase>('idle')
   const [progress, setProgress] = useState<Progress>({ page: 0, total: 0, message: '' })
   const [errorMessage, setErrorMessage] = useState('')
   const [isFileLockedError, setIsFileLockedError] = useState(false)
-  const [speaking, setSpeaking] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [inputPath, setInputPath] = useState('')
   const [fileName, setFileName] = useState('')
@@ -54,7 +54,6 @@ export default function Home() {
 
   const tauriDialogRef = useRef<typeof import('@tauri-apps/plugin-dialog') | null>(null)
   const tauriShellRef = useRef<typeof import('@tauri-apps/plugin-shell') | null>(null)
-  const processingAudioRef = useRef<HTMLAudioElement | null>(null)
 
   // Refs for auto-focus
   const selectBtnRef = useRef<HTMLButtonElement>(null)
@@ -62,7 +61,7 @@ export default function Home() {
   const retryBtnRef = useRef<HTMLButtonElement>(null)
   const newFileBtnRef = useRef<HTMLButtonElement>(null)
 
-  // Load Tauri APIs on mount (don't block on voices — speakAsync handles that)
+  // Load Tauri APIs on mount
   useEffect(() => {
     if (globalThis.window === undefined) return
     Promise.all([import('@tauri-apps/plugin-dialog'), import('@tauri-apps/plugin-shell')])
@@ -74,9 +73,14 @@ export default function Home() {
       .catch(err => console.error('Failed to load Tauri APIs:', err))
   }, [])
 
-  // Auto-focus and TTS announcements when phase changes
+  // Screen reader announcement via aria-live region
+  const announce = useCallback((msg: string) => {
+    setStatusMessage(msg)
+  }, [])
+
+  // Auto-focus and screen reader announcements when phase changes
   useEffect(() => {
-    const timer = setTimeout(async () => {
+    const timer = setTimeout(() => {
       switch (phase) {
         case 'idle':
           selectBtnRef.current?.focus()
@@ -84,37 +88,26 @@ export default function Home() {
         case 'preview':
           saveBtnRef.current?.focus()
           playSFX('success')
-          await speakAsync(`อ่านไฟล์สำเร็จ พบข้อความทั้งหมด ${progress.total} หน้า คุณสามารถกดปุ่มบันทึกเป็น Word หรือกดปุ่มฟังข้อความด้วยเสียงได้`)
+          announce(`อ่านไฟล์สำเร็จ พบข้อความทั้งหมด ${progress.total} หน้า`)
           break
         case 'saved':
           newFileBtnRef.current?.focus()
           playSFX('success')
-          await speakAsync('บันทึกไฟล์ Word สำเร็จแล้ว คุณสามารถกดปุ่มแปลงไฟล์ใหม่เพื่อเลือกไฟล์อื่นได้')
+          announce(`บันทึกไฟล์ Word สำเร็จแล้ว ${progress.total} หน้า`)
           break
         case 'error':
           retryBtnRef.current?.focus()
           playSFX('error')
           if (isFileLockedError) {
-            await speakAsync('ไม่สามารถบันทึกได้เพราะไฟล์ถูกเปิดอยู่ กรุณาปิดไฟล์ Word แล้วกดปุ่มบันทึกอีกครั้ง')
+            announce('ไม่สามารถบันทึกได้เพราะไฟล์ถูกเปิดอยู่ กรุณาปิดไฟล์ Word แล้วกดปุ่มบันทึกอีกครั้ง')
           } else {
-            await speakAsync(`เกิดข้อผิดพลาด ${errorMessage} กดปุ่มลองใหม่เพื่อเริ่มต้นใหม่`)
+            announce(`เกิดข้อผิดพลาด ${errorMessage}`)
           }
           break
       }
-    }, 500)
+    }, 300)
     return () => clearTimeout(timer)
-  }, [phase, errorMessage, progress.total, isFileLockedError])
-
-  // Welcome TTS on mount — speakAsync waits for voices internally
-  useEffect(() => {
-    if (tauriReady) {
-      speakAsync('ยินดีต้อนรับสู่ Thai PDF Fixer กดปุ่มเพื่อเลือกไฟล์ PDF')
-    }
-  }, [tauriReady])
-
-  const announce = useCallback((msg: string) => {
-    setStatusMessage(msg)
-  }, [])
+  }, [phase, errorMessage, progress.total, isFileLockedError, announce])
 
   // Helper: set error state with file-locked detection
   const setError = useCallback((message: string, code?: string) => {
@@ -145,17 +138,10 @@ export default function Home() {
       setOutputPath('')
       setIsFileLockedError(false)
 
-      // Start extracting text (preview mode — no DOCX yet)
       setPhase('extracting')
       setProgress({ page: 0, total: 0, message: 'กำลังอ่านไฟล์...' })
-      announce(`กำลังอ่านไฟล์ ${name}`)
-
-      // Play upload sound + TTS announcement, wait for speech to finish
       playSFX('upload')
-      await speakAsync(`เลือกไฟล์แล้ว กำลังอ่านและแกะข้อความจากไฟล์ PDF กรุณารอสักครู่`)
-
-      // Start processing sound after speech finishes
-      processingAudioRef.current = playSFX('processing')
+      announce(`กำลังอ่านไฟล์ ${name}`)
 
       let collectedText = ''
 
@@ -170,13 +156,10 @@ export default function Home() {
           } else if (msg.type === 'text') {
             collectedText += msg.content + '\n'
           } else if (msg.type === 'preview_done') {
-            processingAudioRef.current?.pause()
             setPreviewText(collectedText.trim())
             setProgress(prev => ({ ...prev, message: '' }))
             setPhase('preview')
-            announce(`อ่านเสร็จแล้ว ${msg.pages} หน้า`)
           } else if (msg.type === 'error') {
-            processingAudioRef.current?.pause()
             setError(msg.message, msg.code)
           }
         } catch {
@@ -189,7 +172,6 @@ export default function Home() {
       })
 
       command.on('error', (err: string) => {
-        processingAudioRef.current?.pause()
         setError(`ไม่สามารถเรียกใช้ตัวแปลงได้: ${err}`)
       })
 
@@ -197,7 +179,6 @@ export default function Home() {
         if (data.code !== null && data.code !== 0) {
           setPhase(prev => {
             if (prev === 'extracting') {
-              processingAudioRef.current?.pause()
               setError(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
               return 'error'
             }
@@ -208,7 +189,6 @@ export default function Home() {
 
       await command.spawn()
     } catch (err: any) {
-      processingAudioRef.current?.pause()
       const msg = err?.message || err?.toString?.() || JSON.stringify(err) || 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'
       setError(msg)
     }
@@ -232,10 +212,8 @@ export default function Home() {
       setPhase('saving')
       setIsFileLockedError(false)
       setProgress({ page: 0, total: 0, message: 'กำลังสร้างไฟล์ Word...' })
-      announce('กำลังบันทึกเป็นไฟล์ Word')
-
-      await speakAsync('กำลังแปลงไฟล์เป็น Word พร้อมข้อความ ตาราง และรูปภาพ กรุณารอสักครู่')
-      processingAudioRef.current = playSFX('processing')
+      playSFX('processing')
+      announce('กำลังแปลงไฟล์เป็น Word')
 
       const command = shell.Command.sidecar('binaries/converter', ['convert', inputPath, savePath])
 
@@ -245,11 +223,8 @@ export default function Home() {
           if (msg.type === 'progress') {
             setProgress({ page: msg.page, total: msg.total, message: msg.message })
           } else if (msg.type === 'done') {
-            processingAudioRef.current?.pause()
             setPhase('saved')
-            announce(`บันทึกสำเร็จ ${msg.pages} หน้า`)
           } else if (msg.type === 'error') {
-            processingAudioRef.current?.pause()
             setError(msg.message, msg.code)
           }
         } catch {
@@ -262,7 +237,6 @@ export default function Home() {
       })
 
       command.on('error', (err: string) => {
-        processingAudioRef.current?.pause()
         setError(`ไม่สามารถบันทึกได้: ${err}`)
       })
 
@@ -270,7 +244,6 @@ export default function Home() {
         if (data.code !== null && data.code !== 0) {
           setPhase(prev => {
             if (prev === 'saving') {
-              processingAudioRef.current?.pause()
               setError(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
               return 'error'
             }
@@ -281,29 +254,12 @@ export default function Home() {
 
       await command.spawn()
     } catch (err: any) {
-      processingAudioRef.current?.pause()
       setError(err?.message || 'ไม่สามารถบันทึกไฟล์ได้')
     }
   }, [inputPath, announce, setError])
 
-  // ── TTS ─────────────────────────────────────────────────────
-  const handleSpeak = useCallback(async () => {
-    if (speaking) {
-      stopSpeech()
-      setSpeaking(false)
-      await speakAsync('หยุดอ่านแล้ว')
-      return
-    }
-    if (!previewText) return
-    setSpeaking(true)
-    await speakAsync('กำลังอ่านข้อความที่แกะได้จากไฟล์ PDF')
-    speak(previewText, () => setSpeaking(false))
-  }, [speaking, previewText])
-
   // ── Reset ───────────────────────────────────────────────────
-  const handleReset = useCallback(async () => {
-    stopSpeech()
-    setSpeaking(false)
+  const handleReset = useCallback(() => {
     setPhase('idle')
     setProgress({ page: 0, total: 0, message: '' })
     setErrorMessage('')
@@ -313,7 +269,6 @@ export default function Home() {
     setOutputPath('')
     setPreviewText('')
     setStatusMessage('')
-    await speakAsync('พร้อมเลือกไฟล์ใหม่ กดปุ่มเพื่อเลือกไฟล์ PDF')
   }, [])
 
   const progressPercent = progress.total > 0 ? Math.round((progress.page / progress.total) * 100) : 0
@@ -365,7 +320,7 @@ export default function Home() {
                 <ol className='space-y-1 text-left text-base text-stone-500'>
                   <li>1. กดปุ่มด้านบนเพื่อเลือกไฟล์ PDF</li>
                   <li>2. รอระบบอ่านและแกะข้อความ</li>
-                  <li>3. ดูตัวอย่างข้อความ หรือฟังด้วยเสียง</li>
+                  <li>3. ดูตัวอย่างข้อความ</li>
                   <li>4. กดบันทึกเป็นไฟล์ Word เมื่อพร้อม</li>
                 </ol>
               </div>
@@ -463,13 +418,6 @@ export default function Home() {
                 บันทึกเป็น Word
               </button>
 
-              {previewText && (
-                <button onClick={handleSpeak} className={btnSecondary} aria-label={speaking ? 'หยุดอ่าน' : 'ฟังข้อความด้วยเสียง'}>
-                  <Icon icon={speaking ? 'mdi:stop-circle' : 'mdi:volume-high'} className='text-2xl' aria-hidden='true' />
-                  {speaking ? 'หยุดอ่าน' : 'ฟังข้อความด้วยเสียง'}
-                </button>
-              )}
-
               <button onClick={handleReset} className={btnSecondary} aria-label='เลือกไฟล์ใหม่'>
                 <Icon icon='mdi:arrow-left' className='text-2xl' aria-hidden='true' />
                 เลือกไฟล์ใหม่
@@ -479,7 +427,7 @@ export default function Home() {
 
           {/* ── SAVING: Converting to DOCX ───────────────────── */}
           {phase === 'saving' && (
-            <section className='w-full max-w-md' aria-label='กำลังบันทึก' role='status'>
+            <section className='w-full max-w-md' aria-label='กำลังแปลงเป็นไฟล์ Word' role='status'>
               <div className='rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
                 <div className='mb-6 flex justify-center'>
                   <div className='flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100'>
