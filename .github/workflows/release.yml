@@ -20,6 +20,7 @@ jobs:
         run: |
           pip install -r python/requirements.txt
           pip install pyinstaller
+          pip install --force-reinstall --no-binary charset-normalizer charset-normalizer
 
       - name: Build converter sidecar
         working-directory: python
