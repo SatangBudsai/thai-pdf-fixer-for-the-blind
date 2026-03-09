@@ -133,16 +133,16 @@ npm run tauri:dev
 
 #### 1. แก้เลขเวอร์ชันในไฟล์ (ทั้ง 3 ที่)
 
-- `package.json` → `"version": "2.1.0"`
-- `src-tauri/tauri.conf.json` → `"version": "2.1.0"`
-- `src-tauri/Cargo.toml` → `version = "2.1.0"`
+- `package.json` → `"version": "1.0.0"`
+- `src-tauri/tauri.conf.json` → `"version": "1.0.0"`
+- `src-tauri/Cargo.toml` → `version = "1.0.0"`
 
 #### 2. commit และ tag
 
 ```bash
 git add -A
-git commit -m "release: v2.1.0"
-git tag v2.1.0
+git commit -m "release: v1.0.0"
+git tag v1.0.0
 git push origin main --tags
 ```
 
