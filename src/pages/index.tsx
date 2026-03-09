@@ -367,26 +367,21 @@ export default function Home() {
           {phase === 'preview' && (
             <section className='w-full max-w-md space-y-5' aria-label='ผลลัพธ์'>
               {/* Success card — read complete */}
-              <div className='overflow-hidden rounded-xl border-4 border-stone-900 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
-                <div className='relative bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 px-6 py-6 text-center'>
-                  <div className='absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.15),transparent_70%)]' />
-                  <div className='relative'>
-                    <div className='mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border-4 border-white/40 bg-white/20 backdrop-blur-sm'>
-                      <Icon icon='mdi:check-circle' className='text-4xl text-white' aria-hidden='true' />
-                    </div>
-                    <p className='text-2xl font-black text-white drop-shadow-sm'>อ่านไฟล์สำเร็จ!</p>
-                    <p className='mt-1 text-base font-medium text-white/80'>พร้อมบันทึกเป็นไฟล์ Word</p>
+              <div className='rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='mb-4 flex justify-center'>
+                  <div className='flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100'>
+                    <Icon icon='mdi:check-circle' className='text-5xl text-emerald-500' aria-hidden='true' />
                   </div>
                 </div>
-                <div className='bg-white px-6 py-4'>
-                  <div className='flex items-center justify-center gap-4'>
-                    <div className='flex items-center gap-2 rounded-lg border-2 border-emerald-200 bg-emerald-50 px-4 py-2'>
-                      <Icon icon='mdi:file-document-outline' className='text-xl text-emerald-600' aria-hidden='true' />
-                      <span className='text-lg font-bold text-emerald-700'>{progress.total} หน้า</span>
-                    </div>
+                <p className='text-center text-2xl font-black text-stone-900'>อ่านไฟล์สำเร็จ!</p>
+                <p className='mt-1 text-center text-base text-stone-400'>พร้อมบันทึกเป็นไฟล์ Word</p>
+                <div className='mt-4 flex items-center justify-center'>
+                  <div className='flex items-center gap-2 rounded-lg border-2 border-emerald-200 bg-emerald-50 px-4 py-2'>
+                    <Icon icon='mdi:file-document-outline' className='text-xl text-emerald-600' aria-hidden='true' />
+                    <span className='text-lg font-bold text-emerald-700'>{progress.total} หน้า</span>
                   </div>
-                  <p className='mt-3 break-all text-center text-sm text-stone-400'>{fileName}</p>
                 </div>
+                <p className='mt-3 break-all text-center text-sm text-stone-400'>{fileName}</p>
               </div>
 
               {/* Text preview */}
@@ -462,30 +457,21 @@ export default function Home() {
           {/* ── SAVED: Success ────────────────────────────────── */}
           {phase === 'saved' && (
             <section className='w-full max-w-md space-y-5' aria-label='บันทึกสำเร็จ'>
-              <div className='overflow-hidden rounded-xl border-4 border-stone-900 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
-                <div className='relative bg-gradient-to-r from-emerald-500 via-green-400 to-emerald-500 px-6 py-6 text-center'>
-                  <div className='absolute inset-0 bg-[radial-gradient(circle_at_70%_50%,rgba(255,255,255,0.15),transparent_70%)]' />
-                  <div className='relative'>
-                    <div className='mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border-4 border-white/40 bg-white/20 backdrop-blur-sm'>
-                      <Icon icon='mdi:file-check' className='text-4xl text-white' aria-hidden='true' />
-                    </div>
-                    <p className='text-2xl font-black text-white drop-shadow-sm'>บันทึกสำเร็จ!</p>
-                    <p className='mt-1 text-base font-medium text-white/80'>ไฟล์ Word พร้อมใช้งานแล้ว</p>
+              <div className='rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='mb-4 flex justify-center'>
+                  <div className='flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100'>
+                    <Icon icon='mdi:file-check' className='text-5xl text-emerald-500' aria-hidden='true' />
                   </div>
                 </div>
-                <div className='bg-white px-6 py-4'>
-                  <div className='flex items-center justify-center gap-4'>
-                    <div className='flex items-center gap-2 rounded-lg border-2 border-emerald-200 bg-emerald-50 px-4 py-2'>
-                      <Icon icon='mdi:file-word' className='text-xl text-emerald-600' aria-hidden='true' />
-                      <span className='text-lg font-bold text-emerald-700'>{progress.total} หน้า</span>
-                    </div>
+                <p className='text-center text-2xl font-black text-stone-900'>บันทึกสำเร็จ!</p>
+                <p className='mt-1 text-center text-base text-stone-400'>ไฟล์ Word พร้อมใช้งานแล้ว</p>
+                <div className='mt-4 flex items-center justify-center'>
+                  <div className='flex items-center gap-2 rounded-lg border-2 border-emerald-200 bg-emerald-50 px-4 py-2'>
+                    <Icon icon='mdi:file-word' className='text-xl text-emerald-600' aria-hidden='true' />
+                    <span className='text-lg font-bold text-emerald-700'>{progress.total} หน้า</span>
                   </div>
-                  {outputPath && (
-                    <p className='mt-3 break-all text-center text-sm text-stone-400'>
-                      บันทึกที่: {outputPath}
-                    </p>
-                  )}
                 </div>
+                {outputPath && <p className='mt-3 break-all text-center text-sm text-stone-400'>บันทึกที่: {outputPath}</p>}
               </div>
 
               <button ref={newFileBtnRef} onClick={handleReset} className={btnPrimary} aria-label='แปลงไฟล์ใหม่'>
@@ -498,19 +484,14 @@ export default function Home() {
           {/* ── ERROR ─────────────────────────────────────────── */}
           {phase === 'error' && (
             <section className='w-full max-w-md space-y-5' aria-label='เกิดข้อผิดพลาด'>
-              <div className='overflow-hidden rounded-xl border-4 border-stone-900 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
-                <div className='relative bg-gradient-to-r from-red-500 via-rose-400 to-red-500 px-6 py-6 text-center'>
-                  <div className='absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.1),transparent_70%)]' />
-                  <div className='relative'>
-                    <div className='mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full border-4 border-white/40 bg-white/20 backdrop-blur-sm'>
-                      <Icon icon='mdi:alert-circle' className='text-4xl text-white' aria-hidden='true' />
-                    </div>
-                    <p className='text-2xl font-black text-white drop-shadow-sm'>เกิดข้อผิดพลาด</p>
+              <div className='rounded-xl border-4 border-stone-900 bg-white p-8 shadow-[5px_5px_0px_0px_rgba(28,25,23,1)]'>
+                <div className='mb-4 flex justify-center'>
+                  <div className='flex h-16 w-16 items-center justify-center rounded-full bg-red-100'>
+                    <Icon icon='mdi:alert-circle' className='text-5xl text-red-500' aria-hidden='true' />
                   </div>
                 </div>
-                <div className='bg-white px-6 py-4'>
-                  <p className='text-center text-lg text-red-600'>{errorMessage}</p>
-                </div>
+                <p className='text-center text-2xl font-black text-stone-900'>เกิดข้อผิดพลาด</p>
+                <p className='mt-3 text-center text-lg text-red-600'>{errorMessage}</p>
               </div>
 
               {isFileLockedError ? (
@@ -533,7 +514,7 @@ export default function Home() {
             </section>
           )}
 
-          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v2.0 — สำหรับผู้พิการทางสายตา</p>
+          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.0 — สำหรับผู้พิการทางสายตา</p>
         </main>
       </div>
     </>
