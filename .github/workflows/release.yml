@@ -24,7 +24,7 @@ jobs:
       - name: Build converter sidecar
         run: |
           cd python
-          pyinstaller --onefile --name converter converter.py
+          pyinstaller converter.spec
 
       - name: Copy sidecar to Tauri binaries
         run: |
