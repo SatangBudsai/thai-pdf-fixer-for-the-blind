@@ -320,9 +320,7 @@ export default function Home() {
             <div className='mx-auto flex max-w-2xl items-center justify-between gap-4'>
               <div className='flex items-center gap-3'>
                 <Icon icon='mdi:download-circle' className='text-2xl' aria-hidden='true' />
-                <span className='text-lg font-bold'>
-                  มีเวอร์ชันใหม่ {updateAvailable.version} พร้อมอัปเดต!
-                </span>
+                <span className='text-lg font-bold'>มีเวอร์ชันใหม่ {updateAvailable.version} พร้อมอัปเดต!</span>
               </div>
               <button
                 onClick={handleUpdate}
@@ -568,7 +566,7 @@ export default function Home() {
             </section>
           )}
 
-          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.0 — สำหรับผู้พิการทางสายตา</p>
+          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.0.1 — สำหรับผู้พิการทางสายตา</p>
         </main>
       </div>
     </>

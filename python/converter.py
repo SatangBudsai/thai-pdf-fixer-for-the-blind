@@ -54,6 +54,117 @@ def normalize_thai(text: str) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════
+# CID resolver — decode (cid:X) from custom-encoded Thai fonts
+# ════════════════════════════════════════════════════════════════════
+
+CID_PATTERN = re.compile(r'\(cid:(\d+)\)')
+
+
+def extract_tounicode_cmap(doc, font_xref):
+    """
+    Extract CID-to-Unicode mapping from a font's /ToUnicode CMap stream.
+    Returns dict: {cid_int: unicode_char, ...}
+    """
+    mapping = {}
+    try:
+        result = doc.xref_get_key(font_xref, "ToUnicode")
+        if result[0] in ("null", "none"):
+            return mapping
+
+        tounicode_xref = int(result[1].split()[0])
+        cmap_stream = doc.xref_stream(tounicode_xref).decode("utf-8", errors="ignore")
+
+        # Parse beginbfchar sections: <CID_hex> <Unicode_hex>
+        bfchar_pattern = re.compile(r"beginbfchar\s*(.*?)\s*endbfchar", re.DOTALL)
+        pair_pattern = re.compile(r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>")
+        for section in bfchar_pattern.findall(cmap_stream):
+            for cid_hex, uni_hex in pair_pattern.findall(section):
+                cid = int(cid_hex, 16)
+                mapping[cid] = chr(int(uni_hex, 16))
+
+        # Parse beginbfrange sections: <CID_start> <CID_end> <Unicode_start>
+        bfrange_pattern = re.compile(r"beginbfrange\s*(.*?)\s*endbfrange", re.DOTALL)
+        range_pattern = re.compile(
+            r"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>"
+        )
+        for section in bfrange_pattern.findall(cmap_stream):
+            for start_hex, end_hex, uni_start_hex in range_pattern.findall(section):
+                cid_start = int(start_hex, 16)
+                cid_end = int(end_hex, 16)
+                uni_start = int(uni_start_hex, 16)
+                for offset in range(cid_end - cid_start + 1):
+                    mapping[cid_start + offset] = chr(uni_start + offset)
+    except Exception:
+        pass
+    return mapping
+
+
+def build_page_cid_maps(doc, page):
+    """
+    Build CID-to-Unicode mappings for every font on a page.
+    Returns dict: {font_name: {cid: char, ...}, ...}
+    """
+    font_maps = {}
+    for font_info in page.get_fonts(full=True):
+        font_xref = font_info[0]
+        font_name = font_info[3] or font_info[4]  # basefont or short name
+        cmap = extract_tounicode_cmap(doc, font_xref)
+        if cmap:
+            font_maps[font_name] = cmap
+    return font_maps
+
+
+def cid_to_thai_char(cid):
+    """
+    Fallback: guess Thai character from CID using common encoding patterns.
+    TIS-620: byte 0xA1-0xFB → Unicode U+0E01-U+0E5B
+    Some fonts: CID 1-90 → U+0E01-U+0E5A (direct offset)
+    """
+    # TIS-620 byte value
+    if 0xA1 <= cid <= 0xFB:
+        return chr(cid - 0xA0 + 0x0E00)
+    # Direct offset (CID 1 = ก, CID 2 = ข, ...)
+    if 1 <= cid <= 90:
+        candidate = chr(0x0E00 + cid)
+        if '\u0E01' <= candidate <= '\u0E5B':
+            return candidate
+    # Already a Thai Unicode codepoint
+    if 0x0E01 <= cid <= 0x0E5B:
+        return chr(cid)
+    return None
+
+
+def resolve_cid_text(text, font_cid_map=None):
+    """Replace all (cid:X) in text with actual characters."""
+    if '(cid:' not in text:
+        return text
+
+    def _replace(match):
+        cid = int(match.group(1))
+        # Priority 1: ToUnicode CMap
+        if font_cid_map and cid in font_cid_map:
+            return font_cid_map[cid]
+        # Priority 2: TIS-620 heuristic
+        char = cid_to_thai_char(cid)
+        if char:
+            return char
+        # Give up — keep placeholder
+        return match.group(0)
+
+    return CID_PATTERN.sub(_replace, text)
+
+
+def build_merged_cid_map(doc, page):
+    """Build a single merged CID map from all fonts on the page."""
+    merged = {}
+    for font_info in page.get_fonts(full=True):
+        font_xref = font_info[0]
+        cmap = extract_tounicode_cmap(doc, font_xref)
+        merged.update(cmap)
+    return merged
+
+
+# ════════════════════════════════════════════════════════════════════
 # JSON-line protocol helpers
 # ════════════════════════════════════════════════════════════════════
 
@@ -94,6 +205,7 @@ def extract_page_content(plumber_page, fitz_page):
     1. Use pdfplumber to find tables and their bounding boxes.
     2. Use PyMuPDF to get text blocks, filtering out any that overlap
        with table regions (so text inside tables isn't duplicated).
+       Resolve CID-encoded characters using font ToUnicode CMaps.
     3. Use pdfplumber to extract table data as 2D arrays.
     4. Use PyMuPDF to extract embedded images.
 
@@ -103,6 +215,10 @@ def extract_page_content(plumber_page, fitz_page):
       {"type": "image", "data": bytes, "ext": str, "y": float}
     """
     content_items = []
+    doc = fitz_page.parent
+
+    # ── Step 0: Build CID maps for this page ─────────────────────
+    cid_map = build_merged_cid_map(doc, fitz_page)
 
     # ── Step 1: Detect tables ──────────────────────────────────────
     tables = plumber_page.find_tables()
@@ -130,7 +246,8 @@ def extract_page_content(plumber_page, fitz_page):
         if in_table:
             continue
 
-        # Apply Thai text normalization (fix ำ decomposition + PyThaiNLP)
+        # Resolve CID-encoded characters, then normalize Thai text
+        text = resolve_cid_text(text, cid_map)
         normalized = normalize_thai(text)
         content_items.append({"type": "text", "content": normalized, "y": by0})
 
@@ -140,12 +257,13 @@ def extract_page_content(plumber_page, fitz_page):
         if not table_data:
             continue
 
-        # Normalize Thai text in each cell
+        # Resolve CID + normalize Thai text in each cell
         normalized_table = []
         for row in table_data:
             normalized_row = []
             for cell in row:
                 if cell:
+                    cell = resolve_cid_text(cell, cid_map)
                     normalized_row.append(normalize_thai(cell))
                 else:
                     normalized_row.append("")
