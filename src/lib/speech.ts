@@ -1,10 +1,40 @@
 let currentUtterance: SpeechSynthesisUtterance | null = null
+let cachedVoice: SpeechSynthesisVoice | null = null
+
+function getThaiFemalVoice(): SpeechSynthesisVoice | null {
+  if (cachedVoice) return cachedVoice
+
+  const voices = speechSynthesis.getVoices()
+  const thaiVoices = voices.filter(v => v.lang.startsWith('th'))
+
+  // Prefer female voices (common names: Kanya, Premwadee, Microsoft Kanya)
+  const femaleKeywords = ['kanya', 'premwadee', 'female', 'woman', 'หญิง']
+  const female = thaiVoices.find(v =>
+    femaleKeywords.some(k => v.name.toLowerCase().includes(k))
+  )
+
+  // Fallback: any Thai voice
+  cachedVoice = female || thaiVoices[0] || null
+  return cachedVoice
+}
+
+// Pre-load voices (some browsers load asynchronously)
+if (typeof window !== 'undefined') {
+  speechSynthesis.onvoiceschanged = () => {
+    cachedVoice = null
+    getThaiFemalVoice()
+  }
+}
 
 export function speak(text: string, onEnd?: () => void): void {
   stop()
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = 'th-TH'
   utterance.rate = 0.9
+
+  const voice = getThaiFemalVoice()
+  if (voice) utterance.voice = voice
+
   utterance.onend = () => {
     currentUtterance = null
     onEnd?.()

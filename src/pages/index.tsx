@@ -75,27 +75,28 @@ export default function Home() {
 
   // Auto-focus and TTS announcements when phase changes
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
+      stopSpeech()
       switch (phase) {
         case 'idle':
           selectBtnRef.current?.focus()
           break
         case 'preview':
           saveBtnRef.current?.focus()
-          speakAsync('อ่านไฟล์สำเร็จ กดปุ่มบันทึกเป็น Word เพื่อดำเนินการต่อ')
+          await speakAsync(`อ่านไฟล์สำเร็จ พบข้อความทั้งหมด ${progress.total} หน้า คุณสามารถกดปุ่มบันทึกเป็น Word หรือกดปุ่มฟังข้อความด้วยเสียงได้`)
           break
         case 'saved':
           newFileBtnRef.current?.focus()
-          speakAsync('บันทึกไฟล์ Word สำเร็จแล้ว')
+          await speakAsync('บันทึกไฟล์ Word สำเร็จแล้ว คุณสามารถกดปุ่มแปลงไฟล์ใหม่เพื่อเลือกไฟล์อื่นได้')
           break
         case 'error':
           retryBtnRef.current?.focus()
-          speakAsync(`เกิดข้อผิดพลาด ${errorMessage}`)
+          await speakAsync(`เกิดข้อผิดพลาด ${errorMessage} กดปุ่มลองใหม่เพื่อเริ่มต้นใหม่`)
           break
       }
-    }, 300)
+    }, 500)
     return () => clearTimeout(timer)
-  }, [phase, errorMessage])
+  }, [phase, errorMessage, progress.total])
 
   // Announce to screen reader on mount
   useEffect(() => {
@@ -128,7 +129,7 @@ export default function Home() {
       setPreviewText('')
       setOutputPath('')
 
-      // Play upload sound + TTS
+      // Play upload sound + TTS announcement, wait for speech to finish
       playSFX('upload')
       stopSpeech()
 
@@ -136,12 +137,10 @@ export default function Home() {
       setPhase('extracting')
       setProgress({ page: 0, total: 0, message: 'กำลังอ่านไฟล์...' })
       announce(`กำลังอ่านไฟล์ ${name}`)
-      speakAsync(`กำลังอ่านไฟล์ ${name} กรุณารอสักครู่`)
+      await speakAsync(`เลือกไฟล์แล้ว ${name} กำลังอ่านและแกะข้อความจากไฟล์ PDF กรุณารอสักครู่`)
 
-      // Start processing sound after a short delay
-      setTimeout(() => {
-        processingAudioRef.current = playSFX('processing')
-      }, 500)
+      // Start processing sound after speech finishes
+      processingAudioRef.current = playSFX('processing')
 
       let collectedText = ''
 
@@ -227,7 +226,7 @@ export default function Home() {
       setProgress({ page: 0, total: 0, message: 'กำลังสร้างไฟล์ Word...' })
       announce('กำลังบันทึกเป็นไฟล์ Word')
       stopSpeech()
-      speakAsync('กำลังแปลงไฟล์เป็น Word กรุณารอสักครู่')
+      await speakAsync('กำลังแปลงไฟล์เป็น Word พร้อมข้อความ ตาราง และรูปภาพ กรุณารอสักครู่')
       processingAudioRef.current = playSFX('processing')
 
       const command = shell.Command.sidecar('binaries/converter', ['convert', inputPath, savePath])

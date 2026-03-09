@@ -174,17 +174,20 @@ def extract_page_content(plumber_page, fitz_page):
             if len(img_bytes) < 2048:
                 continue
 
-            # If the image format is unsupported by python-docx, convert via PIL
-            if img_ext not in ("png", "jpg", "jpeg", "gif", "bmp", "tiff"):
-                try:
-                    from PIL import Image as PILImage
-                    pil_img = PILImage.open(io.BytesIO(img_bytes))
-                    buf = io.BytesIO()
-                    pil_img.save(buf, format="PNG")
-                    img_bytes = buf.getvalue()
-                    img_ext = "png"
-                except Exception:
-                    continue
+            # Always convert through PIL to fix DPI=0 and unsupported formats
+            try:
+                from PIL import Image as PILImage
+                pil_img = PILImage.open(io.BytesIO(img_bytes))
+                buf = io.BytesIO()
+                # Convert RGBA/P to RGB for JPEG compatibility, save as PNG
+                if pil_img.mode in ("RGBA", "P", "LA"):
+                    pil_img = pil_img.convert("RGBA")
+                buf = io.BytesIO()
+                pil_img.save(buf, format="PNG")
+                img_bytes = buf.getvalue()
+                img_ext = "png"
+            except Exception:
+                continue
 
             # Determine the Y position of the image on the page
             img_rects = fitz_page.get_image_rects(xref)
