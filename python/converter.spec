@@ -1,11 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
 
+# charset_normalizer uses mypyc compiled modules that PyInstaller can't detect
+cn_datas, cn_binaries, cn_hiddenimports = collect_all('charset_normalizer')
 
 a = Analysis(
     ['converter.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
+    binaries=cn_binaries,
+    datas=cn_datas,
     hiddenimports=[
         'PIL',
         'PIL.Image',
@@ -14,7 +17,7 @@ a = Analysis(
         'pythainlp.util.normalize',
         'pdfplumber',
         'pdfplumber.page',
-    ],
+    ] + cn_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

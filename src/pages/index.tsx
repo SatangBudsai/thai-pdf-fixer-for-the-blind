@@ -193,8 +193,11 @@ export default function Home() {
         }
       })
 
+      const stderrLines: string[] = []
+
       command.stderr.on('data', (line: string) => {
         console.error('Sidecar stderr:', line)
+        stderrLines.push(line)
       })
 
       command.on('error', (err: string) => {
@@ -205,7 +208,8 @@ export default function Home() {
         if (data.code !== null && data.code !== 0) {
           setPhase(prev => {
             if (prev === 'extracting') {
-              setError(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
+              const detail = stderrLines.length > 0 ? '\n' + stderrLines.slice(-5).join('\n') : ''
+              setError(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}${detail}`)
               return 'error'
             }
             return prev
@@ -258,8 +262,11 @@ export default function Home() {
         }
       })
 
+      const stderrLines2: string[] = []
+
       command.stderr.on('data', (line: string) => {
         console.error('Sidecar stderr:', line)
+        stderrLines2.push(line)
       })
 
       command.on('error', (err: string) => {
@@ -270,7 +277,8 @@ export default function Home() {
         if (data.code !== null && data.code !== 0) {
           setPhase(prev => {
             if (prev === 'saving') {
-              setError(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}`)
+              const detail = stderrLines2.length > 0 ? '\n' + stderrLines2.slice(-5).join('\n') : ''
+              setError(`ตัวแปลงหยุดทำงานด้วยรหัส ${data.code}${detail}`)
               return 'error'
             }
             return prev
@@ -566,7 +574,7 @@ export default function Home() {
             </section>
           )}
 
-          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.1.2 — สำหรับผู้พิการทางสายตา</p>
+          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.1.3 — สำหรับผู้พิการทางสายตา</p>
         </main>
       </div>
     </>
