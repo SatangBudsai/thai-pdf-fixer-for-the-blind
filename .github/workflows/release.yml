@@ -86,19 +86,32 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Build Tauri app
-        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build
 
-      - name: List build output
+      - name: List build output and sign manually if needed
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           echo "=== NSIS output ==="
           ls -la src-tauri/target/release/bundle/nsis/ || echo "No NSIS output"
-          echo "=== Looking for .sig files ==="
-          find src-tauri/target/release/bundle -name "*.sig" 2>/dev/null || echo "No .sig files found"
+
+          SETUP_EXE=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe" | head -1)
+          SETUP_SIG="${SETUP_EXE}.sig"
+
+          if [ ! -f "$SETUP_SIG" ]; then
+            echo "No .sig file found, signing manually..."
+            echo "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/private.key
+            npx tauri signer sign --private-key-path /tmp/private.key --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$SETUP_EXE"
+            rm -f /tmp/private.key
+          fi
+
+          echo "=== Files after signing ==="
+          ls -la src-tauri/target/release/bundle/nsis/
 
       - name: Create release and upload assets
         shell: bash
@@ -106,44 +119,28 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
-
-          # Find the setup exe and sig
           SETUP_EXE=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe" | head -1)
           SETUP_SIG=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe.sig" | head -1)
 
           echo "Setup exe: $SETUP_EXE"
           echo "Setup sig: $SETUP_SIG"
 
-          # Create release
           gh release create "$TAG" \
             --title "Thai PDF Fixer $TAG" \
-            --notes "$(cat <<'NOTES'
-          ดาวน์โหลดตัวติดตั้ง:
-          - \`.exe\` — ตัวติดตั้งแบบ NSIS
+            --notes $'ดาวน์โหลดตัวติดตั้ง:\n- `.exe` — ตัวติดตั้งแบบ NSIS\n\nหากใช้งานอยู่แล้ว แอปจะแจ้งเตือนอัปเดตอัตโนมัติ' \
+            || echo "Release already exists, uploading assets..."
 
-          หากใช้งานอยู่แล้ว แอปจะแจ้งเตือนอัปเดตอัตโนมัติ
-          NOTES
-          )" \
-            || echo "Release may already exist, uploading assets..."
-
-          # Upload assets
-          if [ -n "$SETUP_EXE" ]; then
-            gh release upload "$TAG" "$SETUP_EXE" --clobber
-          fi
-          if [ -n "$SETUP_SIG" ]; then
-            gh release upload "$TAG" "$SETUP_SIG" --clobber
-          fi
+          [ -n "$SETUP_EXE" ] && gh release upload "$TAG" "$SETUP_EXE" --clobber
+          [ -n "$SETUP_SIG" ] && gh release upload "$TAG" "$SETUP_SIG" --clobber
 
       - name: Generate and upload latest.json
-        if: success()
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-
-          SETUP_EXE=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe" -printf "%f" | head -1)
+          SETUP_EXE_NAME=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe" -exec basename {} \; | head -1)
           SETUP_SIG=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe.sig" | head -1)
 
           if [ -z "$SETUP_SIG" ]; then
@@ -152,23 +149,11 @@ jobs:
           fi
 
           SIGNATURE=$(cat "$SETUP_SIG")
-          DOWNLOAD_URL="https://github.com/SatangBudsai/thai-pdf-fixer-for-the-blind/releases/download/${TAG}/${SETUP_EXE}"
+          DOWNLOAD_URL="https://github.com/SatangBudsai/thai-pdf-fixer-for-the-blind/releases/download/${TAG}/${SETUP_EXE_NAME}"
 
-          cat > latest.json <<EOF
-          {
-            "version": "${VERSION}",
-            "notes": "Thai PDF Fixer ${TAG}",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "platforms": {
-              "windows-x86_64": {
-                "signature": "${SIGNATURE}",
-                "url": "${DOWNLOAD_URL}"
-              }
-            }
-          }
-          EOF
+          printf '{\n  "version": "%s",\n  "notes": "Thai PDF Fixer %s",\n  "pub_date": "%s",\n  "platforms": {\n    "windows-x86_64": {\n      "signature": "%s",\n      "url": "%s"\n    }\n  }\n}\n' \
+            "$VERSION" "$TAG" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SIGNATURE" "$DOWNLOAD_URL" > latest.json
 
           echo "=== latest.json ==="
           cat latest.json
-
           gh release upload "$TAG" latest.json --clobber
