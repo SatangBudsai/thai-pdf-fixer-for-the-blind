@@ -91,23 +91,25 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build
 
-      - name: List build output and sign manually if needed
+      - name: Sign installer if .sig not generated
         shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           echo "=== NSIS output ==="
-          ls -la src-tauri/target/release/bundle/nsis/ || echo "No NSIS output"
+          ls -la src-tauri/target/release/bundle/nsis/
 
           SETUP_EXE=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe" | head -1)
-          SETUP_SIG="${SETUP_EXE}.sig"
+          echo "Setup exe: $SETUP_EXE"
 
-          if [ ! -f "$SETUP_SIG" ]; then
+          if [ ! -f "${SETUP_EXE}.sig" ]; then
             echo "No .sig file found, signing manually..."
-            echo "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/private.key
-            npx tauri signer sign --private-key-path /tmp/private.key --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$SETUP_EXE"
-            rm -f /tmp/private.key
+            echo "$SIGNING_KEY" > /tmp/signing.key
+            npx tauri signer sign --private-key-path /tmp/signing.key --password "$SIGNING_PASSWORD" "$SETUP_EXE"
+            rm -f /tmp/signing.key
+          else
+            echo ".sig file already exists"
           fi
 
           echo "=== Files after signing ==="
