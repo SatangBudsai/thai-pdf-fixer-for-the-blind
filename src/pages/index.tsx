@@ -602,7 +602,7 @@ export default function Home() {
             </section>
           )}
 
-          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.2.11</p>
+          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.2.12</p>
         </main>
       </div>
     </>
