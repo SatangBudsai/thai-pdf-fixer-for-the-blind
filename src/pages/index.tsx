@@ -90,16 +90,21 @@ export default function Home() {
   }, [])
 
   // Handle update install
+  const [updateError, setUpdateError] = useState('')
+
   const handleUpdate = useCallback(async () => {
     if (!updateAvailable) return
     setUpdating(true)
+    setUpdateError('')
     announce('กำลังดาวน์โหลดและติดตั้งอัปเดต กรุณารอสักครู่')
     try {
       await updateAvailable.downloadAndInstall()
       const { relaunch } = await import('@tauri-apps/plugin-process')
       await relaunch()
-    } catch (err) {
+    } catch (err: any) {
       console.error('Update failed:', err)
+      const msg = err?.message || err?.toString?.() || 'ไม่ทราบสาเหตุ'
+      setUpdateError(`อัปเดตล้มเหลว: ${msg}`)
       setUpdating(false)
     }
   }, [updateAvailable, announce])
@@ -328,7 +333,7 @@ export default function Home() {
             <div className='mx-auto flex max-w-2xl items-center justify-between gap-4'>
               <div className='flex items-center gap-3'>
                 <Icon icon='mdi:arrow-up-circle' className='text-2xl text-amber-400' aria-hidden='true' />
-                <span className='text-lg font-bold'>เวอร์ชัน {updateAvailable.version} พร้อมแล้ว</span>
+                <span className='text-lg font-bold'>{updateError || `เวอร์ชัน ${updateAvailable.version} พร้อมแล้ว`}</span>
               </div>
               <button
                 onClick={handleUpdate}
