@@ -150,7 +150,8 @@ jobs:
           fi
 
           SIGNATURE=$(cat "$SETUP_SIG")
-          DOWNLOAD_URL="https://github.com/SatangBudsai/thai-pdf-fixer-for-the-blind/releases/download/${TAG}/${SETUP_EXE_NAME}"
+          ENCODED_NAME=$(echo "$SETUP_EXE_NAME" | sed 's/ /%20/g')
+          DOWNLOAD_URL="https://github.com/SatangBudsai/thai-pdf-fixer-for-the-blind/releases/download/${TAG}/${ENCODED_NAME}"
 
           printf '{\n  "version": "%s",\n  "notes": "Thai PDF Fixer %s",\n  "pub_date": "%s",\n  "platforms": {\n    "windows-x86_64": {\n      "signature": "%s",\n      "url": "%s"\n    }\n  }\n}\n' \
             "$VERSION" "$TAG" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SIGNATURE" "$DOWNLOAD_URL" > latest.json
