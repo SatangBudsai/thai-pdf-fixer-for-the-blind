@@ -20,24 +20,20 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
 const files = [
   {
     path: 'package.json',
-    replace: (content) => content.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`),
+    replace: content => content.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`)
   },
   {
     path: 'src-tauri/tauri.conf.json',
-    replace: (content) => content.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`),
+    replace: content => content.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`)
   },
   {
     path: 'src-tauri/Cargo.toml',
-    replace: (content) => content.replace(/^version\s*=\s*"[^"]*"/m, `version = "${version}"`),
+    replace: content => content.replace(/^version\s*=\s*"[^"]*"/m, `version = "${version}"`)
   },
   {
     path: 'src/pages/index.tsx',
-    replace: (content) =>
-      content.replace(
-        /Thai PDF Fixer v[\d.]+ —/,
-        `Thai PDF Fixer v${version} —`
-      ),
-  },
+    replace: content => content.replace(/Thai PDF Fixer v[\d.]+/, `Thai PDF Fixer v${version}`)
+  }
 ]
 
 for (const file of files) {
