@@ -22,9 +22,7 @@
 ## วิธีติดตั้ง (สำหรับผู้ใช้ทั่วไป)
 
 1. ไปที่หน้า [Releases](https://github.com/SatangBudsai/thai-pdf-fixer-for-the-blind/releases/latest) บน GitHub
-2. ดาวน์โหลดไฟล์ติดตั้ง:
-   - ไฟล์ `.exe` — ตัวติดตั้งแบบ NSIS (แนะนำ)
-   - ไฟล์ `.msi` — ตัวติดตั้งแบบ Windows Installer (เหมาะสำหรับผู้ใช้ screen reader เพราะ accessible กว่า)
+2. ดาวน์โหลดไฟล์ `.exe` ตัวติดตั้ง
 3. เปิดไฟล์ที่ดาวน์โหลด แล้วทำตามขั้นตอนติดตั้ง
 4. ถ้า Windows SmartScreen เตือน ให้กด Tab ไปที่ "More info" แล้วกด Enter จากนั้นกด Tab ไปที่ "Run anyway" แล้วกด Enter
 
@@ -102,21 +100,18 @@ pip install pyinstaller
 
 ```bash
 cd python
-pyinstaller --onefile --name converter converter.py
+pyinstaller converter.spec
 copy dist\converter.exe ..\src-tauri\binaries\converter-x86_64-pc-windows-msvc.exe
 ```
 
 #### 3. build แอป Tauri
 
 ```bash
-# build ทั้ง .exe (NSIS) และ .msi
+# build ตัวติดตั้ง .exe (NSIS)
 npm run tauri build
 ```
 
-ไฟล์ installer จะอยู่ที่:
-
-- `src-tauri/target/release/bundle/nsis/` — ไฟล์ .exe
-- `src-tauri/target/release/bundle/msi/` — ไฟล์ .msi
+ไฟล์ installer จะอยู่ที่ `src-tauri/target/release/bundle/nsis/`
 
 ### วิธี dev ในเครื่อง
 
@@ -164,7 +159,7 @@ git push origin main --tags
 เมื่อ push tag ที่ขึ้นต้นด้วย `v` ระบบจะ:
 
 1. build ตัวแปลง Python เป็น converter.exe
-2. build แอป Tauri ทั้ง .exe และ .msi
+2. build แอป Tauri เป็นตัวติดตั้ง .exe
 3. สร้าง GitHub Release พร้อมไฟล์ดาวน์โหลด
 4. สร้างไฟล์ `latest.json` สำหรับระบบอัปเดตอัตโนมัติ
 

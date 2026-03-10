@@ -78,8 +78,7 @@ jobs:
           releaseName: 'Thai PDF Fixer ${{ github.ref_name }}'
           releaseBody: |
             ดาวน์โหลดตัวติดตั้ง:
-            - `.exe` — ตัวติดตั้งแบบ NSIS (แนะนำ)
-            - `.msi` — ตัวติดตั้งแบบ Windows Installer
+            - `.exe` — ตัวติดตั้งแบบ NSIS
 
             หากใช้งานอยู่แล้ว แอปจะแจ้งเตือนอัปเดตอัตโนมัติ
           releaseDraft: false
