@@ -105,7 +105,7 @@ jobs:
 
           if [ ! -f "${SETUP_EXE}.sig" ]; then
             echo "No .sig file found, signing manually..."
-            echo "$SIGNING_KEY" > /tmp/signing.key
+            printf '%s' "$SIGNING_KEY" > /tmp/signing.key
             npx tauri signer sign --private-key-path /tmp/signing.key --password "$SIGNING_PASSWORD" "$SETUP_EXE"
             rm -f /tmp/signing.key
           else
