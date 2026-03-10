@@ -324,16 +324,16 @@ export default function Home() {
       <div className='min-h-screen bg-gradient-to-br from-amber-50 via-stone-50 to-emerald-50'>
         {/* ── Update banner ──────────────────────────────────── */}
         {updateAvailable && (
-          <div className='border-b-4 border-blue-900 bg-gradient-to-r from-blue-500 to-indigo-500 px-4 py-3 text-white' role='alert'>
+          <div className='border-b-4 border-stone-900 bg-stone-900 px-4 py-3 text-white' role='alert'>
             <div className='mx-auto flex max-w-2xl items-center justify-between gap-4'>
               <div className='flex items-center gap-3'>
-                <Icon icon='mdi:download-circle' className='text-2xl' aria-hidden='true' />
-                <span className='text-lg font-bold'>มีเวอร์ชันใหม่ {updateAvailable.version} พร้อมอัปเดต!</span>
+                <Icon icon='mdi:arrow-up-circle' className='text-2xl text-amber-400' aria-hidden='true' />
+                <span className='text-lg font-bold'>เวอร์ชัน {updateAvailable.version} พร้อมแล้ว</span>
               </div>
               <button
                 onClick={handleUpdate}
                 disabled={updating}
-                className='rounded-lg border-2 border-white bg-white/20 px-5 py-2 text-lg font-bold text-white hover:bg-white/30 focus:outline-none focus:ring-4 focus:ring-white/50 disabled:opacity-50'
+                className='rounded-lg border-2 border-amber-400 bg-amber-400 px-5 py-2 text-lg font-bold text-stone-900 hover:bg-amber-300 hover:border-amber-300 focus:outline-none focus:ring-4 focus:ring-amber-400/50 disabled:opacity-50 transition-colors'
                 aria-label={updating ? 'กำลังอัปเดต' : 'อัปเดตเลย'}>
                 {updating ? (
                   <>
