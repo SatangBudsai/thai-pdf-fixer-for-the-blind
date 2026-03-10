@@ -91,20 +91,41 @@ export default function Home() {
 
   // Handle update install
   const [updateError, setUpdateError] = useState('')
+  const [updateProgress, setUpdateProgress] = useState('')
 
   const handleUpdate = useCallback(async () => {
     if (!updateAvailable) return
     setUpdating(true)
     setUpdateError('')
+    setUpdateProgress('กำลังเริ่มดาวน์โหลด...')
     announce('กำลังดาวน์โหลดและติดตั้งอัปเดต กรุณารอสักครู่')
+
+    let totalBytes = 0
+    let downloadedBytes = 0
+
     try {
-      await updateAvailable.downloadAndInstall()
+      await updateAvailable.downloadAndInstall((event) => {
+        if (event.event === 'Started') {
+          totalBytes = event.data.contentLength ?? 0
+          setUpdateProgress(totalBytes > 0 ? `กำลังดาวน์โหลด 0%` : 'กำลังดาวน์โหลด...')
+        } else if (event.event === 'Progress') {
+          downloadedBytes += event.data.chunkLength
+          if (totalBytes > 0) {
+            const pct = Math.round((downloadedBytes / totalBytes) * 100)
+            setUpdateProgress(`กำลังดาวน์โหลด ${pct}%`)
+          }
+        } else if (event.event === 'Finished') {
+          setUpdateProgress('กำลังติดตั้ง...')
+        }
+      })
+      setUpdateProgress('กำลังรีสตาร์ท...')
       const { relaunch } = await import('@tauri-apps/plugin-process')
       await relaunch()
     } catch (err: any) {
       console.error('Update failed:', err)
       const msg = err?.message || err?.toString?.() || 'ไม่ทราบสาเหตุ'
       setUpdateError(`อัปเดตล้มเหลว: ${msg}`)
+      setUpdateProgress('')
       setUpdating(false)
     }
   }, [updateAvailable, announce])
@@ -343,10 +364,10 @@ export default function Home() {
                 {updating ? (
                   <>
                     <Icon icon='mdi:loading' className='mr-2 inline animate-spin' aria-hidden='true' />
-                    กำลังอัปเดต...
+                    {updateProgress || 'กำลังอัปเดต...'}
                   </>
                 ) : (
-                  'อัปเดตเลย'
+                  updateError ? 'ลองอีกครั้ง' : 'อัปเดตเลย'
                 )}
               </button>
             </div>
@@ -579,7 +600,7 @@ export default function Home() {
             </section>
           )}
 
-          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.2.7 — สำหรับผู้พิการทางสายตา</p>
+          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.2.9 — สำหรับผู้พิการทางสายตา</p>
         </main>
       </div>
     </>
