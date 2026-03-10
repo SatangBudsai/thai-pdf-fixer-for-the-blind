@@ -67,6 +67,23 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Verify signing key is set
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is NOT set!"
+            exit 1
+          else
+            echo "TAURI_SIGNING_PRIVATE_KEY is set (length: ${#TAURI_SIGNING_PRIVATE_KEY})"
+          fi
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not set"
+          else
+            echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is set (length: ${#TAURI_SIGNING_PRIVATE_KEY_PASSWORD})"
+          fi
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0.5
         env:
