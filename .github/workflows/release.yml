@@ -133,7 +133,6 @@ jobs:
             || echo "Release already exists, uploading assets..."
 
           [ -n "$SETUP_EXE" ] && gh release upload "$TAG" "$SETUP_EXE" --clobber
-          [ -n "$SETUP_SIG" ] && gh release upload "$TAG" "$SETUP_SIG" --clobber
 
       - name: Generate and upload latest.json
         shell: bash
