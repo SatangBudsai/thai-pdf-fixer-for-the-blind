@@ -86,19 +86,89 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0.5
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Thai PDF Fixer ${{ github.ref_name }}'
-          releaseBody: |
-            ดาวน์โหลดตัวติดตั้ง:
-            - `.exe` — ตัวติดตั้งแบบ NSIS
+        run: npx tauri build
 
-            หากใช้งานอยู่แล้ว แอปจะแจ้งเตือนอัปเดตอัตโนมัติ
-          releaseDraft: false
-          prerelease: false
-          includeUpdaterJson: true
+      - name: List build output
+        shell: bash
+        run: |
+          echo "=== NSIS output ==="
+          ls -la src-tauri/target/release/bundle/nsis/ || echo "No NSIS output"
+          echo "=== Looking for .sig files ==="
+          find src-tauri/target/release/bundle -name "*.sig" 2>/dev/null || echo "No .sig files found"
+
+      - name: Create release and upload assets
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+
+          # Find the setup exe and sig
+          SETUP_EXE=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe" | head -1)
+          SETUP_SIG=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe.sig" | head -1)
+
+          echo "Setup exe: $SETUP_EXE"
+          echo "Setup sig: $SETUP_SIG"
+
+          # Create release
+          gh release create "$TAG" \
+            --title "Thai PDF Fixer $TAG" \
+            --notes "$(cat <<'NOTES'
+          ดาวน์โหลดตัวติดตั้ง:
+          - \`.exe\` — ตัวติดตั้งแบบ NSIS
+
+          หากใช้งานอยู่แล้ว แอปจะแจ้งเตือนอัปเดตอัตโนมัติ
+          NOTES
+          )" \
+            || echo "Release may already exist, uploading assets..."
+
+          # Upload assets
+          if [ -n "$SETUP_EXE" ]; then
+            gh release upload "$TAG" "$SETUP_EXE" --clobber
+          fi
+          if [ -n "$SETUP_SIG" ]; then
+            gh release upload "$TAG" "$SETUP_SIG" --clobber
+          fi
+
+      - name: Generate and upload latest.json
+        if: success()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+
+          SETUP_EXE=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe" -printf "%f" | head -1)
+          SETUP_SIG=$(find src-tauri/target/release/bundle/nsis -name "*-setup.exe.sig" | head -1)
+
+          if [ -z "$SETUP_SIG" ]; then
+            echo "::error::No .sig file found! Cannot create latest.json"
+            exit 1
+          fi
+
+          SIGNATURE=$(cat "$SETUP_SIG")
+          DOWNLOAD_URL="https://github.com/SatangBudsai/thai-pdf-fixer-for-the-blind/releases/download/${TAG}/${SETUP_EXE}"
+
+          cat > latest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Thai PDF Fixer ${TAG}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${SIGNATURE}",
+                "url": "${DOWNLOAD_URL}"
+              }
+            }
+          }
+          EOF
+
+          echo "=== latest.json ==="
+          cat latest.json
+
+          gh release upload "$TAG" latest.json --clobber
