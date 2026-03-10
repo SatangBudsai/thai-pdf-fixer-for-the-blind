@@ -104,7 +104,7 @@ export default function Home() {
     let downloadedBytes = 0
 
     try {
-      await updateAvailable.downloadAndInstall((event) => {
+      await updateAvailable.downloadAndInstall(event => {
         if (event.event === 'Started') {
           totalBytes = event.data.contentLength ?? 0
           setUpdateProgress(totalBytes > 0 ? `กำลังดาวน์โหลด 0%` : 'กำลังดาวน์โหลด...')
@@ -359,15 +359,17 @@ export default function Home() {
               <button
                 onClick={handleUpdate}
                 disabled={updating}
-                className='rounded-lg border-2 border-amber-400 bg-amber-400 px-5 py-2 text-lg font-bold text-stone-900 hover:bg-amber-300 hover:border-amber-300 focus:outline-none focus:ring-4 focus:ring-amber-400/50 disabled:opacity-50 transition-colors'
+                className='rounded-lg border-2 border-amber-400 bg-amber-400 px-5 py-2 text-lg font-bold text-stone-900 transition-colors hover:border-amber-300 hover:bg-amber-300 focus:outline-none focus:ring-4 focus:ring-amber-400/50 disabled:opacity-50'
                 aria-label={updating ? 'กำลังอัปเดต' : 'อัปเดตเลย'}>
                 {updating ? (
                   <>
                     <Icon icon='mdi:loading' className='mr-2 inline animate-spin' aria-hidden='true' />
                     {updateProgress || 'กำลังอัปเดต...'}
                   </>
+                ) : updateError ? (
+                  'ลองอีกครั้ง'
                 ) : (
-                  updateError ? 'ลองอีกครั้ง' : 'อัปเดตเลย'
+                  'อัปเดตเลย'
                 )}
               </button>
             </div>
@@ -600,7 +602,7 @@ export default function Home() {
             </section>
           )}
 
-          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.2.9 — สำหรับผู้พิการทางสายตา</p>
+          <p className='mt-12 text-center text-sm text-stone-400'>Thai PDF Fixer v1.2.10</p>
         </main>
       </div>
     </>
